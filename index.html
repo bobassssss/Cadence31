@@ -1243,13 +1243,23 @@ function buildMemberModal(){
   const postInp=mk("input","",{type:"text"});postInp.value=m?m.post:"";
   inputs.post=postInp;
   bodyEls.push(mk("div","frow",{},[mk("label","lf",{},["Poste"]),postInp]));
+  // Email — lien avec le compte Supabase
+  const emailInp=mk("input","",{type:"email",placeholder:"prenom.nom@exemple.com"});
+  emailInp.value=m?m.email||"":"";
+  inputs.email=emailInp;
+  bodyEls.push(mk("div","frow",{},[
+    mk("label","lf",{},["Email (compte utilisateur Supabase)"]),
+    emailInp,
+    mk("p","",{style:{fontSize:"10px",color:"#94a3b8",marginTop:"2px"}},["Permet au collaborateur de saisir ses congés depuis son propre compte."]),
+  ]));
   const doSave=()=>{
     const nm=inputs.name.value.trim();if(!nm)return;
     const rawTeam=inputs.team.value;
     const teamVal=rawTeam==="__new__"?(inputs.newTeamInp.value.trim()||"Nouvelle équipe"):rawTeam;
     const postVal=inputs.post.value.trim();
-    if(m)S.members=S.members.map(x=>x.id===m.id?{...x,name:nm,team:teamVal,post:postVal||x.post}:x);
-    else S.members.push({id:"m"+Date.now(),name:nm,team:teamVal,post:postVal});
+    const emailVal=inputs.email.value.trim().toLowerCase()||"";
+    if(m)S.members=S.members.map(x=>x.id===m.id?{...x,name:nm,team:teamVal,post:postVal||x.post,email:emailVal}:x);
+    else S.members.push({id:"m"+Date.now(),name:nm,team:teamVal,post:postVal,email:emailVal});
     persist();close();
   };
   const footer=[mk("button","btn",{onClick:close},["Annuler"]),mk("button","btn primary",{onClick:doSave},[m?"Enregistrer":"Ajouter"])];
