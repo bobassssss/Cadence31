@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>Planning équipe</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
 /* ── Login screen ── */
 #login-screen{position:fixed;inset:0;background:#f4f6f9;display:flex;align-items:center;justify-content:center;z-index:9999}
@@ -209,8 +209,8 @@ input:focus,select:focus{border-color:#93c5fd;background:#fff}
 </style>
 </head>
 <body>
-<div id="app" style="display:none"></div>
-<div id="login-screen" style="display:none">
+<div id="app"></div>
+<div id="login-screen" style="display:flex">
   <div class="login-card">
     <div class="login-logo"> Planning équipe</div>
     <div class="login-sub">Connectez-vous pour accéder</div>
@@ -225,7 +225,7 @@ input:focus,select:focus{border-color:#93c5fd;background:#fff}
 const SUPABASE_URL="https://gzrlkxjggztemeqyciin.supabase.co";
 const SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd6cmxreGpnZ3p0ZW1lcXljaWluIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwMjk5MjQsImV4cCI6MjA4OTYwNTkyNH0.9Gdpk3nhvLFgyLKO8rutdIeHWBXbL0-O0x4V41jrXOI";
 const ADMIN_EMAIL="olv.roca@gmail.com";
-const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+let sb;
 
 // Auth state global
 let AUTH={user:null,isAdmin:false,memberId:null};
@@ -2603,6 +2603,7 @@ document.getElementById("login-btn").addEventListener("click",async()=>{
   const btn=document.getElementById("login-btn");
   const errDiv=document.getElementById("login-err");
   errDiv.textContent="";btn.textContent="Connexion…";btn.disabled=true;
+  if(!sb){sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);}
   const{data,error}=await sb.auth.signInWithPassword({email,password:pwd});
   btn.textContent="Se connecter";btn.disabled=false;
   if(error){errDiv.textContent="Email ou mot de passe incorrect";return;}
@@ -2612,6 +2613,7 @@ document.getElementById("login-pwd").addEventListener("keydown",e=>{if(e.key==="
 
 // Check existing session
 (async()=>{
+  if(!sb){try{sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);}catch(e){showLogin("Erreur de connexion au service d'authentification");return;}}
   const{data:{session}}=await sb.auth.getSession();
   if(session&&session.user){showApp(session.user);}
   else{showLogin();}
