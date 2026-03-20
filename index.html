@@ -4,7 +4,20 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>Planning équipe</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
+/* ── Login screen ── */
+#login-screen{position:fixed;inset:0;background:#f4f6f9;display:flex;align-items:center;justify-content:center;z-index:9999}
+.login-card{background:#fff;border-radius:16px;padding:32px 28px;width:90%;max-width:340px;box-shadow:0 4px 24px rgba(0,0,0,.12);text-align:center}
+.login-logo{font-size:20px;font-weight:700;color:#1e3a5f;margin-bottom:4px}
+.login-sub{font-size:12px;color:#94a3b8;margin-bottom:24px}
+.login-card input{width:100%;padding:11px 14px;font-size:14px;border:1.5px solid #e2e8f0;border-radius:10px;outline:none;font-family:inherit;background:#f8fafc;margin-bottom:10px;box-sizing:border-box}
+.login-card input:focus{border-color:#1e3a5f;background:#fff}
+.login-btn{width:100%;padding:12px;font-size:14px;font-weight:600;border-radius:10px;background:#1e3a5f;color:#fff;border:none;cursor:pointer;font-family:inherit;margin-top:4px}
+.login-btn:active{background:#163059}
+.login-err{font-size:12px;color:#dc2626;margin-top:8px;min-height:18px}
+.login-loading{font-size:12px;color:#94a3b8;margin-top:8px}
+</style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#f4f6f9;min-height:100vh;color:#1a1a2e;touch-action:pan-y}
 button{cursor:pointer;font-family:inherit;transition:background .12s;-webkit-appearance:none}
@@ -196,8 +209,36 @@ input:focus,select:focus{border-color:#93c5fd;background:#fff}
 </style>
 </head>
 <body>
-<div id="app"></div>
+<div id="app" style="display:none"></div>
+<div id="login-screen" style="display:none">
+  <div class="login-card">
+    <div class="login-logo"> Planning équipe</div>
+    <div class="login-sub">Connectez-vous pour accéder</div>
+    <input type="email" id="login-email" placeholder="Email" autocomplete="email">
+    <input type="password" id="login-pwd" placeholder="Mot de passe" autocomplete="current-password">
+    <button class="login-btn" id="login-btn">Se connecter</button>
+    <div class="login-err" id="login-err"></div>
+  </div>
+</div>
 <script>
+// ─── SUPABASE ──────────────────────────────────────────────────────────────────
+const SUPABASE_URL="https://gzrlkxjggztemeqyciin.supabase.co";
+const SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd6cmxreGpnZ3p0ZW1lcXljaWluIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwMjk5MjQsImV4cCI6MjA4OTYwNTkyNH0.9Gdpk3nhvLFgyLKO8rutdIeHWBXbL0-O0x4V41jrXOI";
+const ADMIN_EMAIL="olv.roca@gmail.com";
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+// Auth state global
+let AUTH={user:null,isAdmin:false,memberId:null};
+
+function isAdmin(){return AUTH.isAdmin;}
+function currentMemberId(){return AUTH.memberId;}
+
+// Trouver l'id du membre correspondant à l'email connecté
+function findMemberByEmail(email){
+  const m=S.members.find(x=>x.email&&x.email.toLowerCase()===email.toLowerCase());
+  return m?m.id:null;
+}
+
 // ─── ACTIVITÉS DE BASE (hors lieux personnalisés) ─────────────────────────────
 const BASE_ACTS={
   ".":  {l:"Présent sur site",      c:"#166534",bg:"#dcfce7"},
@@ -658,12 +699,15 @@ function buildTopBar(){
   teamSel.addEventListener("change",()=>{S.activeTeam=teamSel.value;render();});
   const r2=mk("div","topbar-row",{},[
     teamSel,
-    mk("button","btn",{onClick:()=>{S.modal="tplList";render();}},["Modèle"]),
-    mk("button","btn",{onClick:()=>{S.editMember=null;S.modal="member";render();}},["+ Membre"]),
-    mk("button","btn",{style:{padding:"6px 9px"},onClick:()=>{S.modal="settings";render();}},["⚙ Paramètres"]),
+    ...(isAdmin()?[
+      mk("button","btn",{onClick:()=>{S.modal="tplList";render();}},["Modèle"]),
+      mk("button","btn",{onClick:()=>{S.editMember=null;S.modal="member";render();}},["+ Membre"]),
+      mk("button","btn",{style:{padding:"6px 9px"},onClick:()=>{S.modal="settings";render();}},["⚙ Paramètres"]),
+      mk("button","btn danger",{style:{padding:"6px 9px"},onClick:()=>{S.modal="clearData";render();}},["✕ Effacer"]),
+    ]:[]),
     mk("button","btn",{style:{padding:"6px 9px"},onClick:()=>{S.modal="stats";render();}},[" Statistiques"]),
-    mk("button","btn danger",{style:{padding:"6px 9px"},onClick:()=>{S.modal="clearData";render();}},["✕ Effacer"]),
     mk("button","btn",{onClick:()=>{S.showLegend=!S.showLegend;render();}},[S.showLegend?"Masquer légende":"Légende"]),
+    mk("button","btn danger",{style:{padding:"6px 9px",marginLeft:"auto"},onClick:logout},["⎋ Déconnexion"]),
   ]);
   return mk("div","topbar",{},[r1,r2]);
 }
@@ -996,6 +1040,9 @@ function buildMonthGrid(){
 // ─── EVENTS CELLULES ──────────────────────────────────────────────────────────
 function attachEvents(td,key){
   // PC: click = ouvre directement la modale, maintien+glissement = multi-sélection
+  const mid=key.split("|")[0];
+  const canEdit=isAdmin()||(AUTH.memberId&&AUTH.memberId===mid);
+  if(!canEdit){td.style.cursor="default";return;}
   let mouseDownX=0,mouseDownY=0,didDrag=false;
   td.addEventListener("mousedown",e=>{
     if(e.button!==0)return;
@@ -1117,10 +1164,14 @@ function buildActivityModal(){
       ]));
     } else {
       // Écran principal : liste des activités
+      // Non-admin : seulement CP, DP, TP
+      const allowedForUser=["CP","DP","TP"];
       Object.entries(AG).forEach(([grp,codes])=>{
+        const filteredCodes=isAdmin()?codes:codes.filter(c=>allowedForUser.includes(c));
+        if(filteredCodes.length===0)return;
         body.push(mk("p","grp-label",{},[grp]));
         const grid=mk("div","act-grid");
-        codes.forEach(code=>{
+        filteredCodes.forEach(code=>{
           const a=ACTS[code];if(!a)return;
           const isCustom=customCodes.includes(code);
           const btn=mk("button","act-btn",{onClick:()=>{
@@ -1191,13 +1242,22 @@ function buildMemberModal(){
   const postInp=mk("input","",{type:"text"});postInp.value=m?m.post:"";
   inputs.post=postInp;
   bodyEls.push(mk("div","frow",{},[mk("label","lf",{},["Poste"]),postInp]));
+  // Email Supabase (pour lier au compte utilisateur)
+  const emailInp=mk("input","",{type:"email",placeholder:"email@exemple.com"});emailInp.value=m?m.email||"":"";
+  inputs.email=emailInp;
+  bodyEls.push(mk("div","frow",{},[
+    mk("label","lf",{},["Email (compte utilisateur)"]),
+    emailInp,
+    mk("p","",{style:{fontSize:"10px",color:"#94a3b8",marginTop:"2px"}},["Associe ce membre à un compte Supabase pour qu'il puisse saisir ses congés."]),
+  ]));
   const doSave=()=>{
     const nm=inputs.name.value.trim();if(!nm)return;
     const rawTeam=inputs.team.value;
     const teamVal=rawTeam==="__new__"?(inputs.newTeamInp.value.trim()||"Nouvelle équipe"):rawTeam;
     const postVal=inputs.post.value.trim();
-    if(m)S.members=S.members.map(x=>x.id===m.id?{...x,name:nm,team:teamVal,post:postVal||x.post}:x);
-    else S.members.push({id:"m"+Date.now(),name:nm,team:teamVal,post:postVal});
+    const emailVal=inputs.email.value.trim().toLowerCase();
+    if(m)S.members=S.members.map(x=>x.id===m.id?{...x,name:nm,team:teamVal,post:postVal||x.post,email:emailVal||x.email}:x);
+    else S.members.push({id:"m"+Date.now(),name:nm,team:teamVal,post:postVal,email:emailVal});
     persist();close();
   };
   const footer=[mk("button","btn",{onClick:close},["Annuler"]),mk("button","btn primary",{onClick:doSave},[m?"Enregistrer":"Ajouter"])];
@@ -2520,8 +2580,51 @@ function buildStatsModal(){
 }
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
-loadState();
-render();
+function showApp(user){
+  AUTH.user=user;
+  AUTH.isAdmin=user.email===ADMIN_EMAIL;
+  loadState();
+  AUTH.memberId=findMemberByEmail(user.email);
+  document.getElementById("login-screen").style.display="none";
+  document.getElementById("app").style.display="";
+  render();
+}
+
+function showLogin(errMsg){
+  document.getElementById("login-screen").style.display="flex";
+  document.getElementById("app").style.display="none";
+  if(errMsg)document.getElementById("login-err").textContent=errMsg;
+}
+
+// Login button
+document.getElementById("login-btn").addEventListener("click",async()=>{
+  const email=document.getElementById("login-email").value.trim();
+  const pwd=document.getElementById("login-pwd").value;
+  const btn=document.getElementById("login-btn");
+  const errDiv=document.getElementById("login-err");
+  errDiv.textContent="";btn.textContent="Connexion…";btn.disabled=true;
+  const{data,error}=await sb.auth.signInWithPassword({email,password:pwd});
+  btn.textContent="Se connecter";btn.disabled=false;
+  if(error){errDiv.textContent="Email ou mot de passe incorrect";return;}
+  showApp(data.user);
+});
+document.getElementById("login-pwd").addEventListener("keydown",e=>{if(e.key==="Enter")document.getElementById("login-btn").click();});
+
+// Check existing session
+(async()=>{
+  const{data:{session}}=await sb.auth.getSession();
+  if(session&&session.user){showApp(session.user);}
+  else{showLogin();}
+})();
+
+// Logout helper
+async function logout(){
+  await sb.auth.signOut();
+  AUTH={user:null,isAdmin:false,memberId:null};
+  document.getElementById("app").style.display="none";
+  document.getElementById("login-screen").style.display="flex";
+  document.getElementById("login-err").textContent="";
+}
 </script>
 </body>
 </html>
