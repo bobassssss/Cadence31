@@ -236,6 +236,7 @@ const BASE_ACTS={
   "CP": {l:"Congés prévus",         c:"#c2410c",bg:"#ffedd5"},
   "CV": {l:"Congés validés",        c:"#b91c1c",bg:"#fee2e2"},
   "DP": {l:"Déplacé prévu",         c:"#be185d",bg:"#fce7f3"},
+  "DV": {l:"Déplacé validé",        c:"#9d174d",bg:"#fbcfe8"},
   "O":  {l:"Autre absence",         c:"#6b7280",bg:"#f3f4f6"},
   "/":  {l:"Repos / Fermeture",     c:"#9ca3af",bg:"#f1f5f9"},
 };
@@ -297,12 +298,12 @@ function buildACTGroups(){
     "Sites équipes":eqCodes,
     "Lieux":siteCodes,
     "Télétravail":["TP","TT"],
-    "Absences":["CP","CV","DP","O"],
+    "Absences":["CP","CV","DP","DV","O"],
     "Divers":[".","/"],
   };
 }
 
-const ABSENT_CODES=["CP","CV","DP","O","/","TP","TT"];
+const ABSENT_CODES=["CP","CV","DP","DV","O","/","TP","TT"];
 const DAYS_FULL=["Dim","Lun","Mar","Mer","Jeu","Ven","Sam"];
 const MONTHS_SHORT=["jan","fév","mar","avr","mai","jun","jul","aoû","sep","oct","nov","déc"];
 const MONTHS_FULL=["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
@@ -360,6 +361,9 @@ let S={
   tplActInitComment:"",
   tplDrag:null,
   memberDrag:null, // {memberId, team}
+  // Workflow demandes (CP/DP/TP)
+  requests:[],        // demandes chargées depuis Supabase
+  pendingRequest:null, // {cells, code, memberName} — popup post-saisie
 };
 
 function getMonday(d){const r=new Date(d);r.setHours(0,0,0,0);const w=r.getDay();r.setDate(r.getDate()-(w===0?6:w-1));return r;}
@@ -390,6 +394,9 @@ async function loadState(){
     // Settings
     const{data:st}=await _sb.from("settings").select("key,value");
     if(st){st.forEach(r=>{if(r.key==="main")S.settings={...S.settings,...r.value};if(r.key==="templates")S.templates=r.value;if(r.key==="teamEvents")S.teamEvents=r.value||{};});}
+    // Demandes workflow CP/DP/TP
+    const{data:rq}=await _sb.from("requests").select("*").order("created_at",{ascending:false});
+    if(rq)S.requests=rq;
   }catch(e){console.warn("Supabase loadState error:",e);}
   _fixSettings();
 }
@@ -424,6 +431,62 @@ async function _doPersist(){
 async function _deleteKey(planKey){
   if(!_sb)return;
   try{await _sb.from("planning").delete().eq("key",planKey);}catch(e){}
+}
+
+// ─── WORKFLOW DEMANDES ────────────────────────────────────────────────────────
+// Crée une demande dans Supabase et envoie un email à l'admin
+async function _submitRequest(cells,code){
+  if(!_sb||!_auth.memberId)return;
+  const member=S.members.find(m=>m.id===_auth.memberId);
+  if(!member)return;
+  const ACTS=buildACTS();
+  const entries=cells.map(key=>{
+    const[mid,dateStr,slot]=key.split("|");
+    const d=new Date(dateStr);
+    const label=`${DAYS_FULL[d.getDay()]} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
+    return{key,act:code,date_label:label,slot};
+  });
+  // Stocker dans Supabase
+  const{data,error}=await _sb.from("requests").insert({
+    member_id:_auth.memberId,
+    member_name:member.name,
+    entries,
+    status:"pending",
+  }).select().single();
+  if(!error&&data){
+    S.requests=[data,...S.requests];
+    render();
+  }
+  // Ouvrir mailto
+  const actLabel=ACTS[code]?.l||code;
+  const dateLines=entries.map(e=>`  • ${e.date_label} (${e.slot==="AM"?"Matin":"Après-midi"})`).join("\n");
+  const subject=encodeURIComponent(`[Planning] Demande ${actLabel} – ${member.name}`);
+  const body=encodeURIComponent(
+`Bonjour,\n\n${member.name} a soumis une demande de ${actLabel} pour les dates suivantes :\n\n${dateLines}\n\nMerci de vous connecter à l'application pour valider ou refuser.\n\nhttps://cadence31.vercel.app`
+  );
+  window.location.href=`mailto:${_ADM}?subject=${subject}&body=${body}`;
+}
+
+// Approuve une demande → transforme les activités
+async function _approveRequest(req){
+  if(!_sb)return;
+  const MAP={CP:"CV",TP:"TT",DP:"DV"};
+  const rows=req.entries.map(e=>({key:e.key,act:MAP[e.act]||e.act,comment:"",count_as:null}));
+  // Met à jour le planning local et Supabase
+  rows.forEach(r=>{S.planning[r.key]={act:r.act,comment:""};});
+  if(rows.length>0)await _sb.from("planning").upsert(rows,{onConflict:"key"});
+  // Met à jour le statut de la demande
+  await _sb.from("requests").update({status:"approved"}).eq("id",req.id);
+  S.requests=S.requests.map(r=>r.id===req.id?{...r,status:"approved"}:r);
+  render();
+}
+
+// Refuse une demande
+async function _rejectRequest(req){
+  if(!_sb)return;
+  await _sb.from("requests").update({status:"rejected"}).eq("id",req.id);
+  S.requests=S.requests.map(r=>r.id===req.id?{...r,status:"rejected"}:r);
+  render();
 }
 
 
@@ -673,6 +736,8 @@ function render(){
   if(S.modal==="stats")     app.appendChild(buildStatsModal());
   if(S.modal==="clearData") app.appendChild(buildClearModal());
   if(S.modal==="crcDashboard") app.appendChild(buildCRCDashboard());
+  if(S.modal==="requestConfirm") app.appendChild(buildRequestConfirmModal());
+  if(S.modal==="requestsAdmin") app.appendChild(buildRequestsAdminModal());
 }
 
 // ─── TOP BAR ─────────────────────────────────────────────────────────────────
@@ -719,6 +784,16 @@ function buildTopBar(){
       mk("button","btn",{onClick:()=>{S.editMember=null;S.modal="member";render();}},["+ Membre"]),
       mk("button","btn",{style:{padding:"6px 9px"},onClick:()=>{S.modal="settings";render();}},["⚙ Paramètres"]),
       mk("button","btn danger",{style:{padding:"6px 9px"},onClick:()=>{S.modal="clearData";render();}},["✕ Effacer"]),
+      (()=>{
+        const pending=S.requests.filter(r=>r.status==="pending");
+        const btn=mk("button","btn",{style:{padding:"6px 9px",position:"relative"},onClick:()=>{S.modal="requestsAdmin";render();}},["✉ Demandes"]);
+        if(pending.length>0){
+          const badge=mk("span","",{style:{position:"absolute",top:"-5px",right:"-5px",background:"#ef4444",color:"#fff",borderRadius:"50%",fontSize:"10px",fontWeight:"bold",width:"16px",height:"16px",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:"1"}},[String(pending.length)]);
+          btn.style.position="relative";
+          btn.appendChild(badge);
+        }
+        return btn;
+      })(),
     ]:[]),
     mk("button","btn",{style:{padding:"6px 9px"},onClick:()=>{S.modal="stats";render();}},[" Statistiques"]),
     mk("button","btn",{onClick:()=>{S.showLegend=!S.showLegend;render();}},[S.showLegend?"Masquer légende":"Légende"]),
@@ -793,11 +868,13 @@ function makeTdName(member){
   let pt=null;
   td.addEventListener("touchstart",e=>{
     if(e.target.classList.contains("drag-handle"))return;
+    if(!isAdmin())return;
     pt=setTimeout(()=>{S.editMember=member;S.modal="member";render();},600);
   },{passive:true});
   td.addEventListener("touchend",()=>clearTimeout(pt),{passive:true});
   td.addEventListener("dblclick",e=>{
     if(e.target.classList.contains("drag-handle"))return;
+    if(!isAdmin())return;
     S.editMember=member;S.modal="member";render();
   });
   return td;
@@ -823,6 +900,12 @@ document.addEventListener("mouseup",()=>{
 });
 function makeTdPost(member){
   const td=document.createElement("td");td.className="td-post";
+  if(!isAdmin()){
+    // Non-admin : affichage seul, pas d'édition
+    const span=document.createElement("span");
+    span.style.cssText="font-size:10px;color:#374151;padding:2px;display:block;text-align:center";
+    span.textContent=member.post||"";td.appendChild(span);return td;
+  }
   const inp=mk("input","",{type:"text"});
   inp.value=member.post||"";inp.placeholder="Poste";inp.setAttribute("maxlength","18");
   inp.addEventListener("change",()=>{S.members=S.members.map(x=>x.id===member.id?{...x,post:inp.value.trim()}:x);persist();});
@@ -882,11 +965,13 @@ function makeTeamSepRow(team, workDays, isMobile){
   nameCell.style.display="flex";nameCell.style.alignItems="center";nameCell.style.gap="2px";
   nameCell.appendChild(collapseBtn);
   nameCell.appendChild(document.createTextNode(team));
-  nameCell.title="Double-clic / appui long pour renommer";
-  let sepTimer=null;
-  nameCell.addEventListener("touchstart",()=>{sepTimer=setTimeout(()=>{S.editTeam=team;S.modal="teamRename";render();},700);},{passive:true});
-  nameCell.addEventListener("touchend",()=>clearTimeout(sepTimer),{passive:true});
-  nameCell.addEventListener("dblclick",()=>{S.editTeam=team;S.modal="teamRename";render();});
+  if(isAdmin()){
+    nameCell.title="Double-clic / appui long pour renommer";
+    let sepTimer=null;
+    nameCell.addEventListener("touchstart",()=>{sepTimer=setTimeout(()=>{S.editTeam=team;S.modal="teamRename";render();},700);},{passive:true});
+    nameCell.addEventListener("touchend",()=>clearTimeout(sepTimer),{passive:true});
+    nameCell.addEventListener("dblclick",()=>{S.editTeam=team;S.modal="teamRename";render();});
+  }
   tr.appendChild(nameCell);
   const postTd=document.createElement("td");postTd.className="sep-post";tr.appendChild(postTd);
 
@@ -1102,6 +1187,9 @@ function buildMonthGrid(){
         if(hasComment){const dot=document.createElement("span");dot.className="cell-dot";dot.style.cssText="position:absolute;top:2px;right:2px;width:4px;height:4px;background:#3b82f6;border-radius:50%";td.appendChild(dot);}
         if(tooltipParts.length>0)td.title=tooltipParts.join(" · ");
         // PC: simple click = modal, hold+drag = multi-select
+        const _canEdit=isAdmin()||(_auth.memberId&&_auth.memberId===member.id);
+        if(!_canEdit){td.style.cursor="default";}
+        else{
         let mMoved=false;
         td.addEventListener("mousedown",e=>{if(e.button!==0)return;e.preventDefault();mMoved=false;S.drag={cells:bothKeys};S.actCells=[];});
         td.addEventListener("mouseenter",()=>{if(!S.drag)return;mMoved=true;bothKeys.forEach(k=>{if(!S.drag.cells.includes(k))S.drag.cells.push(k);});render();});
@@ -1115,12 +1203,15 @@ function buildMonthGrid(){
         td.addEventListener("touchstart",()=>{S.drag={cells:bothKeys};S.actCells=[];S.touchDrag=false;render();},{passive:true});
         td.addEventListener("touchmove",e=>{
           S.touchDrag=true;const t=e.touches[0];const target=cellFromPoint(t.clientX,t.clientY);
-          if(target&&target.dataset.key&&S.drag){const km=target.dataset.key,kp=km.replace("|AM","|PM");[km,kp].forEach(k=>{if(k&&!S.drag.cells.includes(k))S.drag.cells.push(k);});render();}
+          if(target&&target.dataset.key&&S.drag){const km=target.dataset.key,kp=km.replace("|AM","|PM");
+          // Ne collecter que les cellules de ce membre
+          [km,kp].forEach(k=>{if(k&&k.startsWith(member.id+"|")&&!S.drag.cells.includes(k))S.drag.cells.push(k);});render();}
         },{passive:true});
         td.addEventListener("touchend",()=>{
           if(!S.drag)return;const cells=S.drag.cells;S.drag=null;
           S.actCells=cells;S.actInitComment="";S.actInitCountAs="present";S.touchDrag=false;S.modal="activity";render();
         },{passive:true});
+        } // end _canEdit
         tr.appendChild(td);
       });
     }); // end members forEach
@@ -1281,6 +1372,10 @@ function buildActivityModal(){
               persist();
               if(code==="CRC"){
                 S.actCells=[];S.modal="crcDashboard";render();
+              } else if(!isAdmin()&&["CP","DP","TP"].includes(code)){
+                // Workflow demande : popup de confirmation
+                S.pendingRequest={cells:[...cells],code};
+                S.modal="requestConfirm";S.actCells=[];render();
               } else {
                 S.modal=null;S.actCells=[];render();
               }
@@ -2495,9 +2590,14 @@ function buildStatsModal(){
   body.appendChild(mk("p","grp-label",{style:{marginTop:"14px"}},["Collaborateur (camembert)"]));
   const memberGrid=mk("div","member-grid");
 
+  // Non-admin : seulement son propre membre
+  const statsVisibleMembers=isAdmin()?S.members:S.members.filter(m=>m.id===_auth.memberId);
+  // Pré-sélectionner le membre de l'utilisateur connecté
+  if(!isAdmin()&&_auth.memberId&&ss.selectedMembers.size===0){ss.selectedMembers.add(_auth.memberId);}
+
   // Single-select : 1 seul collaborateur pour le camembert
   // ss.selectedMembers contient 0 ou 1 id
-  S.members.forEach(member=>{
+  statsVisibleMembers.forEach(member=>{
     const isSel=ss.selectedMembers.has(member.id);
     const chip=mk("button","member-chip"+(isSel?" selected":""),{
       onClick:()=>{
@@ -2643,7 +2743,7 @@ function buildStatsModal(){
     }
 
     // ── Tableau de tous les collaborateurs (toujours visible)
-    const allMids=S.members.map(m=>m.id);
+    const allMids=isAdmin()?S.members.map(m=>m.id):S.members.filter(m=>m.id===_auth.memberId).map(m=>m.id);
     const tblSection=mk("div","stat-section",{style:{marginTop:"12px"}});
     const periodStr=MONTHS_SHORT[ss.periodStart.getMonth()]+" "+ss.periodStart.getFullYear()+" → "+MONTHS_SHORT[ss.periodEnd.getMonth()]+" "+ss.periodEnd.getFullYear();
     tblSection.appendChild(mk("h4",{},["Tous les collaborateurs · "+periodStr]));
@@ -2748,6 +2848,122 @@ async function logout(){
   s.onerror=function(){document.getElementById("lerr").textContent="Impossible de charger le service d'authentification.";};
   document.head.appendChild(s);
 })();
+
+// ─── MODAL CONFIRMATION DEMANDE (utilisateur) ─────────────────────────────────
+function buildRequestConfirmModal(){
+  const pr=S.pendingRequest;
+  if(!pr){S.modal=null;render();return mk("div");}
+  const ACTS=buildACTS();
+  const actLabel=ACTS[pr.code]?.l||pr.code;
+  const close=()=>{S.modal=null;S.pendingRequest=null;render();};
+
+  // Formatage des dates sélectionnées
+  const dateLines=pr.cells.map(key=>{
+    const[,dateStr,slot]=key.split("|");
+    const d=new Date(dateStr);
+    return mk("li","",{style:{marginBottom:"3px"}},[
+      `${DAYS_FULL[d.getDay()]} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]} — ${slot==="AM"?"Matin":"Après-midi"}`
+    ]);
+  });
+  const ul=mk("ul","",{style:{margin:"8px 0 4px 16px",padding:0,fontSize:"13px"}},dateLines);
+
+  const icon=mk("div","",{style:{fontSize:"36px",textAlign:"center",marginBottom:"8px"}},["✉️"]);
+  const title=mk("h3","",{style:{margin:"0 0 6px",textAlign:"center"}},["Envoyer une demande ?"]);
+  const desc=mk("p","",{style:{fontSize:"13px",margin:"0 0 4px",color:"#374151"}},
+    [`Votre saisie "${actLabel}" a été enregistrée. Souhaitez-vous envoyer une demande de validation à l'administrateur ?`]);
+
+  const btnSend=mk("button","btn",{
+    style:{background:"#2563eb",color:"#fff",flex:"1"},
+    onClick:async()=>{
+      btnSend.disabled=true;btnSend.textContent="Envoi…";
+      await _submitRequest(pr.cells,pr.code);
+      S.pendingRequest=null;S.modal=null;render();
+    }
+  },["✉ Envoyer la demande"]);
+
+  const btnSkip=mk("button","btn",{
+    style:{flex:"1"},
+    onClick:close
+  },["Ignorer"]);
+
+  const footer=mk("div","mfooter",{style:{display:"flex",gap:"8px"}},[btnSkip,btnSend]);
+  const box=mk("div","modal",{style:{maxWidth:"360px"}},[icon,title,desc,ul,footer]);
+  return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
+}
+
+// ─── MODAL DEMANDES ADMIN ─────────────────────────────────────────────────────
+function buildRequestsAdminModal(){
+  const close=()=>{S.modal=null;render();};
+  const ACTS=buildACTS();
+  const MAP={CP:"CV",TP:"TT",DP:"DV"};
+
+  // Tri : pending en premier, puis par date desc
+  const sorted=[...S.requests].sort((a,b)=>{
+    if(a.status==="pending"&&b.status!=="pending")return -1;
+    if(b.status==="pending"&&a.status!=="pending")return 1;
+    return new Date(b.created_at)-new Date(a.created_at);
+  });
+
+  const rows=sorted.length===0
+    ?[mk("p","",{style:{color:"#6b7280",fontStyle:"italic",padding:"12px 0"}},["Aucune demande."])]
+    :sorted.map(req=>{
+      const isPending=req.status==="pending";
+      const actLabel=ACTS[req.entries?.[0]?.act]?.l||req.entries?.[0]?.act||"?";
+      const validatedLabel=MAP[req.entries?.[0]?.act]||"";
+      const statusEl=mk("span","",{style:{
+        display:"inline-block",padding:"1px 7px",borderRadius:"10px",fontSize:"11px",fontWeight:"bold",
+        background:isPending?"#fef3c7":req.status==="approved"?"#dcfce7":"#fee2e2",
+        color:isPending?"#92400e":req.status==="approved"?"#166534":"#b91c1c",
+      }},[isPending?"En attente":req.status==="approved"?"Validé ✓":"Refusé ✗"]);
+
+      const datesSummary=req.entries.map(e=>{
+        const d=new Date(e.date_label?new Date():e.key?.split("|")[1]);
+        return e.date_label||e.key?.split("|")[1]||"";
+      });
+
+      const header=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"4px"}},[
+        mk("strong","",{},[req.member_name]),
+        statusEl,
+      ]);
+      const actInfo=mk("p","",{style:{margin:"2px 0",fontSize:"12px",color:"#374151"}},[
+        `${actLabel}`,
+        validatedLabel?mk("span","",{style:{color:"#6b7280"}},[` → sera transformé en ${validatedLabel}`]):""
+      ].filter(Boolean));
+      const datesList=mk("ul","",{style:{margin:"4px 0 6px 14px",padding:0,fontSize:"12px",color:"#4b5563"}},
+        req.entries.map(e=>mk("li",{},[`${e.date_label||e.key} (${e.slot==="AM"?"Matin":"Après-midi"})`]))
+      );
+
+      const btns=isPending?mk("div","",{style:{display:"flex",gap:"6px"}},[
+        mk("button","btn",{
+          style:{flex:"1",background:"#16a34a",color:"#fff",padding:"5px"},
+          onClick:async(ev)=>{ev.target.disabled=true;ev.target.textContent="…";await _approveRequest(req);}
+        },["✓ Valider"]),
+        mk("button","btn danger",{
+          style:{flex:"1",padding:"5px"},
+          onClick:async(ev)=>{ev.target.disabled=true;ev.target.textContent="…";await _rejectRequest(req);}
+        },["✗ Refuser"]),
+      ]):null;
+
+      const createdAt=new Date(req.created_at);
+      const dateStr=`${createdAt.getDate()} ${MONTHS_SHORT[createdAt.getMonth()]} ${createdAt.getFullYear()}`;
+      const meta=mk("p","",{style:{margin:"0",fontSize:"10px",color:"#9ca3af"}},["Soumis le "+dateStr]);
+
+      return mk("div","",{style:{
+        border:"1px solid "+(isPending?"#fcd34d":"#e5e7eb"),
+        borderRadius:"8px",padding:"10px 12px",marginBottom:"10px",
+        background:isPending?"#fffbeb":"#fafafa"
+      }},[header,actInfo,datesList,meta,...(btns?[btns]:[])]);
+    });
+
+  const pending=S.requests.filter(r=>r.status==="pending").length;
+  const title=mk("h3","",{style:{margin:"0 0 12px"}},
+    [`✉ Demandes${pending>0?` (${pending} en attente)`:""}`]);
+
+  const body=mk("div","",{style:{maxHeight:"60vh",overflowY:"auto"}},rows);
+  const footer=mk("div","mfooter",[mk("button","btn",{onClick:close},["Fermer"])]);
+  const box=mk("div","modal",{style:{maxWidth:"420px",width:"95%"}},[title,body,footer]);
+  return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
+}
 
 </script>
 </body>
