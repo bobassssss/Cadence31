@@ -363,7 +363,7 @@ let S={
   memberDrag:null, // {memberId, team}
   // Workflow demandes (CP/DP/TP)
   requests:[],        // demandes chargées depuis Supabase
-  pendingRequest:null, // {cells, code, memberName} — popup post-saisie
+  pendingEntries:[],  // panier session : [{cells, code}] — accumulé avant envoi
 };
 
 function getMonday(d){const r=new Date(d);r.setHours(0,0,0,0);const w=r.getDay();r.setDate(r.getDate()-(w===0?6:w-1));return r;}
@@ -435,18 +435,22 @@ async function _deleteKey(planKey){
 
 // ─── WORKFLOW DEMANDES ────────────────────────────────────────────────────────
 // Crée une demande dans Supabase et envoie un email à l'admin
-async function _submitRequest(cells,code){
+// pendingEntriesArr = [{cells:[...keys], code}]
+async function _submitRequest(pendingEntriesArr){
   if(!_sb||!_auth.memberId)return;
   const member=S.members.find(m=>m.id===_auth.memberId);
   if(!member)return;
   const ACTS=buildACTS();
-  const entries=cells.map(key=>{
-    const[mid,dateStr,slot]=key.split("|");
-    const d=new Date(dateStr);
-    const label=`${DAYS_FULL[d.getDay()]} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
-    return{key,act:code,date_label:label,slot};
-  });
-  // Stocker dans Supabase
+  // Aplatir toutes les cellules en entries Supabase
+  const entries=pendingEntriesArr.flatMap(({cells,code})=>
+    cells.map(key=>{
+      const[,dateStr,slot]=key.split("|");
+      const d=new Date(dateStr);
+      const label=`${DAYS_FULL[d.getDay()]} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
+      return{key,act:code,date_label:label,slot};
+    })
+  );
+  // Une seule ligne dans Supabase pour toute la demande
   const{data,error}=await _sb.from("requests").insert({
     member_id:_auth.memberId,
     member_name:member.name,
@@ -455,14 +459,21 @@ async function _submitRequest(cells,code){
   }).select().single();
   if(!error&&data){
     S.requests=[data,...S.requests];
-    render();
   }
-  // Ouvrir mailto
-  const actLabel=ACTS[code]?.l||code;
-  const dateLines=entries.map(e=>`  • ${e.date_label} (${e.slot==="AM"?"Matin":"Après-midi"})`).join("\n");
-  const subject=encodeURIComponent(`[Planning] Demande ${actLabel} – ${member.name}`);
+  // Email récapitulatif groupé par type d'activité
+  const byCode={};
+  entries.forEach(e=>{
+    if(!byCode[e.act])byCode[e.act]=[];
+    byCode[e.act].push(e);
+  });
+  const actLines=Object.entries(byCode).map(([code,es])=>{
+    const label=ACTS[code]?.l||code;
+    const dates=es.map(e=>`    • ${e.date_label} (${e.slot==="AM"?"Matin":"Après-midi"})`).join("\n");
+    return`${label} :\n${dates}`;
+  }).join("\n\n");
+  const subject=encodeURIComponent(`[Planning] Demande de ${member.name}`);
   const body=encodeURIComponent(
-`Bonjour,\n\n${member.name} a soumis une demande de ${actLabel} pour les dates suivantes :\n\n${dateLines}\n\nMerci de vous connecter à l'application pour valider ou refuser.\n\nhttps://cadence31.vercel.app`
+`Bonjour,\n\n${member.name} a soumis une demande pour les absences suivantes :\n\n${actLines}\n\nMerci de vous connecter à l'application pour valider ou refuser.\n\nhttps://cadence31.vercel.app`
   );
   window.location.href=`mailto:${_ADM}?subject=${subject}&body=${body}`;
 }
@@ -472,13 +483,13 @@ async function _approveRequest(req){
   if(!_sb)return;
   const MAP={CP:"CV",TP:"TT",DP:"DV"};
   const rows=req.entries.map(e=>({key:e.key,act:MAP[e.act]||e.act,comment:"",count_as:null}));
-  // Met à jour le planning local et Supabase
   rows.forEach(r=>{S.planning[r.key]={act:r.act,comment:""};});
   if(rows.length>0)await _sb.from("planning").upsert(rows,{onConflict:"key"});
-  // Met à jour le statut de la demande
   await _sb.from("requests").update({status:"approved"}).eq("id",req.id);
   S.requests=S.requests.map(r=>r.id===req.id?{...r,status:"approved"}:r);
   render();
+  // Email de notification à l'utilisateur
+  _sendNotifEmail(req,"approved");
 }
 
 // Refuse une demande
@@ -487,6 +498,37 @@ async function _rejectRequest(req){
   await _sb.from("requests").update({status:"rejected"}).eq("id",req.id);
   S.requests=S.requests.map(r=>r.id===req.id?{...r,status:"rejected"}:r);
   render();
+  _sendNotifEmail(req,"rejected");
+}
+
+function _sendNotifEmail(req,status){
+  const member=S.members.find(m=>m.id===req.member_id);
+  const email=member?.email;
+  if(!email)return;
+  const ACTS=buildACTS();
+  const MAP={CP:"CV",TP:"TT",DP:"DV"};
+  const isApproved=status==="approved";
+  // Résumé des dates
+  const byCode={};
+  req.entries.forEach(e=>{
+    if(!byCode[e.act])byCode[e.act]=[];
+    byCode[e.act].push(e);
+  });
+  const actLines=Object.entries(byCode).map(([code,es])=>{
+    const label=ACTS[code]?.l||code;
+    const validLabel=isApproved?(MAP[code]?` → ${ACTS[MAP[code]]?.l||MAP[code]}`:""):"";
+    const dates=es.map(e=>`    • ${e.date_label} (${e.slot==="AM"?"Matin":"Après-midi"})`).join("\n");
+    return`${label}${validLabel} :\n${dates}`;
+  }).join("\n\n");
+  const subject=encodeURIComponent(
+    isApproved?`[Planning] Demande validée ✓`:`[Planning] Demande refusée ✗`
+  );
+  const body=encodeURIComponent(
+    isApproved
+      ?`Bonjour ${req.member_name},\n\nVotre demande a été validée. Les activités suivantes ont été mises à jour dans le planning :\n\n${actLines}\n\nCordialement`
+      :`Bonjour ${req.member_name},\n\nVotre demande a été refusée. Les dates concernées restent inchangées :\n\n${actLines}\n\nMerci de contacter l'administrateur pour plus d'informations.\n\nCordialement`
+  );
+  window.location.href=`mailto:${email}?subject=${subject}&body=${body}`;
 }
 
 
@@ -736,7 +778,7 @@ function render(){
   if(S.modal==="stats")     app.appendChild(buildStatsModal());
   if(S.modal==="clearData") app.appendChild(buildClearModal());
   if(S.modal==="crcDashboard") app.appendChild(buildCRCDashboard());
-  if(S.modal==="requestConfirm") app.appendChild(buildRequestConfirmModal());
+  if(S.modal==="requestBasket") app.appendChild(buildRequestBasketModal());
   if(S.modal==="requestsAdmin") app.appendChild(buildRequestsAdminModal());
 }
 
@@ -797,6 +839,12 @@ function buildTopBar(){
     ]:[]),
     mk("button","btn",{style:{padding:"6px 9px"},onClick:()=>{S.modal="stats";render();}},[" Statistiques"]),
     mk("button","btn",{onClick:()=>{S.showLegend=!S.showLegend;render();}},[S.showLegend?"Masquer légende":"Légende"]),
+    ...(!isAdmin()&&S.pendingEntries.length>0?[(()=>{
+      const btn=mk("button","btn",{style:{padding:"6px 9px",background:"#2563eb",color:"#fff",position:"relative"},onClick:()=>{S.modal="requestBasket";render();}},["📋 Ma demande"]);
+      const badge=mk("span","",{style:{position:"absolute",top:"-5px",right:"-5px",background:"#ef4444",color:"#fff",borderRadius:"50%",fontSize:"10px",fontWeight:"bold",width:"16px",height:"16px",display:"flex",alignItems:"center",justifyContent:"center"}},[String(S.pendingEntries.length)]);
+      btn.appendChild(badge);
+      return btn;
+    })()]:[]),
     mk("button","btn",{style:{marginLeft:"auto",padding:"6px 9px",fontSize:"11px"},onClick:logout},["⎋ Quitter"]),
   ]);
   return mk("div","topbar",{},[r1,r2]);
@@ -1373,9 +1421,9 @@ function buildActivityModal(){
               if(code==="CRC"){
                 S.actCells=[];S.modal="crcDashboard";render();
               } else if(!isAdmin()&&["CP","DP","TP"].includes(code)){
-                // Workflow demande : popup de confirmation
-                S.pendingRequest={cells:[...cells],code};
-                S.modal="requestConfirm";S.actCells=[];render();
+                // Workflow demande : ajouter au panier (pas de popup immédiat)
+                S.pendingEntries.push({cells:[...cells],code});
+                S.modal=null;S.actCells=[];render();
               } else {
                 S.modal=null;S.actCells=[];render();
               }
@@ -2849,45 +2897,82 @@ async function logout(){
   document.head.appendChild(s);
 })();
 
-// ─── MODAL CONFIRMATION DEMANDE (utilisateur) ─────────────────────────────────
-function buildRequestConfirmModal(){
-  const pr=S.pendingRequest;
-  if(!pr){S.modal=null;render();return mk("div");}
+// ─── MODAL PANIER DEMANDES (utilisateur) ──────────────────────────────────────
+function buildRequestBasketModal(){
   const ACTS=buildACTS();
-  const actLabel=ACTS[pr.code]?.l||pr.code;
-  const close=()=>{S.modal=null;S.pendingRequest=null;render();};
+  const close=()=>{S.modal=null;render();};
+  const entries=S.pendingEntries;
 
-  // Formatage des dates sélectionnées
-  const dateLines=pr.cells.map(key=>{
-    const[,dateStr,slot]=key.split("|");
-    const d=new Date(dateStr);
-    return mk("li","",{style:{marginBottom:"3px"}},[
-      `${DAYS_FULL[d.getDay()]} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]} — ${slot==="AM"?"Matin":"Après-midi"}`
-    ]);
+  if(entries.length===0){S.modal=null;render();return mk("div");}
+
+  // Grouper par code d'activité pour l'affichage
+  const byCode={};
+  entries.forEach(({cells,code})=>{
+    if(!byCode[code])byCode[code]=[];
+    cells.forEach(key=>{
+      const[,dateStr,slot]=key.split("|");
+      const d=new Date(dateStr);
+      byCode[code].push({
+        key,
+        label:`${DAYS_FULL[d.getDay()]} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`,
+        slot,
+      });
+    });
   });
-  const ul=mk("ul","",{style:{margin:"8px 0 4px 16px",padding:0,fontSize:"13px"}},dateLines);
 
-  const icon=mk("div","",{style:{fontSize:"36px",textAlign:"center",marginBottom:"8px"}},["✉️"]);
-  const title=mk("h3","",{style:{margin:"0 0 6px",textAlign:"center"}},["Envoyer une demande ?"]);
-  const desc=mk("p","",{style:{fontSize:"13px",margin:"0 0 4px",color:"#374151"}},
-    [`Votre saisie "${actLabel}" a été enregistrée. Souhaitez-vous envoyer une demande de validation à l'administrateur ?`]);
+  // Trier les dates dans chaque groupe
+  Object.values(byCode).forEach(arr=>arr.sort((a,b)=>a.key.localeCompare(b.key)));
+
+  const sections=Object.entries(byCode).map(([code,lines])=>{
+    const a=ACTS[code];
+    const badge=mk("span","",{style:{
+      display:"inline-block",padding:"2px 8px",borderRadius:"10px",fontSize:"12px",
+      fontWeight:"bold",background:a?.bg||"#e5e7eb",color:a?.c||"#111",marginBottom:"6px"
+    }},[`${code} — ${a?.l||code}`]);
+    const ul=mk("ul","",{style:{margin:"0 0 10px 16px",padding:0,fontSize:"13px"}},
+      lines.map(l=>mk("li","",{style:{marginBottom:"2px"}},[
+        `${l.label} — ${l.slot==="AM"?"Matin":"Après-midi"}`,
+        mk("button","",{
+          style:{marginLeft:"8px",fontSize:"10px",background:"none",border:"none",color:"#ef4444",cursor:"pointer",padding:"0"},
+          onClick:()=>{
+            // Supprimer cette entrée du panier
+            S.pendingEntries=S.pendingEntries.map(pe=>{
+              if(pe.code!==code)return pe;
+              const remaining=pe.cells.filter(k=>k!==l.key);
+              return remaining.length>0?{...pe,cells:remaining}:null;
+            }).filter(Boolean);
+            if(S.pendingEntries.length===0)S.modal=null;
+            render();
+          }
+        },["✕"])
+      ]))
+    );
+    return mk("div",{},[badge,ul]);
+  });
+
+  const icon=mk("div","",{style:{fontSize:"32px",textAlign:"center",marginBottom:"6px"}},["📋"]);
+  const title=mk("h3","",{style:{margin:"0 0 4px",textAlign:"center"}},["Ma demande"]);
+  const desc=mk("p","",{style:{fontSize:"12px",color:"#6b7280",margin:"0 0 12px",textAlign:"center"}},
+    ["Récapitulatif des absences à soumettre pour validation"]);
+
+  const body=mk("div","",{style:{maxHeight:"50vh",overflowY:"auto",marginBottom:"4px"}},sections);
+
+  const btnClear=mk("button","btn danger",{
+    style:{padding:"6px 10px",fontSize:"12px"},
+    onClick:()=>{S.pendingEntries=[];S.modal=null;render();}
+  },["✕ Vider"]);
 
   const btnSend=mk("button","btn",{
     style:{background:"#2563eb",color:"#fff",flex:"1"},
     onClick:async()=>{
       btnSend.disabled=true;btnSend.textContent="Envoi…";
-      await _submitRequest(pr.cells,pr.code);
-      S.pendingRequest=null;S.modal=null;render();
+      await _submitRequest([...S.pendingEntries]);
+      S.pendingEntries=[];S.modal=null;render();
     }
   },["✉ Envoyer la demande"]);
 
-  const btnSkip=mk("button","btn",{
-    style:{flex:"1"},
-    onClick:close
-  },["Ignorer"]);
-
-  const footer=mk("div","mfooter",{style:{display:"flex",gap:"8px"}},[btnSkip,btnSend]);
-  const box=mk("div","modal",{style:{maxWidth:"360px"}},[icon,title,desc,ul,footer]);
+  const footer=mk("div","mfooter",{style:{display:"flex",gap:"8px",alignItems:"center"}},[btnClear,btnSend]);
+  const box=mk("div","modal",{style:{maxWidth:"380px"}},[icon,title,desc,body,footer]);
   return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
 }
 
