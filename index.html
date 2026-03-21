@@ -60,6 +60,10 @@ th,td{border:0.5px solid #e9ecef;vertical-align:middle}
 .th-mday.school-vac{background:#fef9c3}
 .th-day.school-vac{background:#fef9c3}
 .td-name{padding:3px 7px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:sticky;left:0;background:#fff;z-index:3}
+.td-name .drag-handle{display:inline-block;cursor:grab;color:#d1d5db;font-size:13px;margin-right:4px;vertical-align:middle;user-select:none}
+.td-name .drag-handle:active{cursor:grabbing}
+tr.dragging-row{opacity:0.4}
+tr.drag-over-row td{border-top:2px solid #1e3a5f!important}
 .td-post{padding:1px 2px;position:sticky;left:116px;background:#fff;z-index:3}
 .td-post input{width:100%;font-size:10px;text-align:center;border:none;outline:none;background:transparent;color:#374151;padding:2px;min-width:0}
 .td-post input:focus{background:#eff6ff;border-radius:3px}
@@ -355,6 +359,7 @@ let S={
   tplActKeys:[],         // cellules sélectionnées dans l'éditeur
   tplActInitComment:"",
   tplDrag:null,
+  memberDrag:null, // {memberId, team}
 };
 
 function getMonday(d){const r=new Date(d);r.setHours(0,0,0,0);const w=r.getDay();r.setDate(r.getDate()-(w===0?6:w-1));return r;}
@@ -423,6 +428,13 @@ async function _deleteKey(planKey){
 
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
+// Annuler le drag membre si on relâche ailleurs
+document.addEventListener("mouseup",()=>{
+  if(S.memberDrag){
+    document.querySelectorAll(".dragging-row").forEach(r=>r.classList.remove("dragging-row"));
+    S.memberDrag=null;
+  }
+});
 function addDays(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r;}
 // Toujours utiliser les parties locales (évite le décalage UTC+1/+2)
 function fmtDate(d){
@@ -724,11 +736,60 @@ function buildTopBar(){
 // ─── CELLULES NOM / POSTE ────────────────────────────────────────────────────
 function makeTdName(member){
   const td=mk("td","td-name",{title:"Appui long pour modifier"});
-  td.textContent=member.name;
+  // Poignée de réordonnancement (admin uniquement)
+  if(isAdmin()){
+    const handle=document.createElement("span");
+    handle.className="drag-handle";handle.textContent="⋮⋮";handle.title="Glisser pour réordonner";
+    handle.addEventListener("mousedown",e=>{
+      e.preventDefault();e.stopPropagation();
+      S.memberDrag={memberId:member.id,team:member.team};
+      const row=td.closest("tr");if(row)row.classList.add("dragging-row");
+    });
+    td.appendChild(handle);
+  }
+  const nameSpan=document.createElement("span");nameSpan.textContent=member.name;
+  td.appendChild(nameSpan);
   let pt=null;
-  td.addEventListener("touchstart",()=>{pt=setTimeout(()=>{S.editMember=member;S.modal="member";render();},600);},{passive:true});
+  td.addEventListener("touchstart",e=>{
+    if(e.target.classList.contains("drag-handle"))return;
+    pt=setTimeout(()=>{S.editMember=member;S.modal="member";render();},600);
+  },{passive:true});
   td.addEventListener("touchend",()=>clearTimeout(pt),{passive:true});
-  td.addEventListener("dblclick",()=>{S.editMember=member;S.modal="member";render();});
+  td.addEventListener("dblclick",e=>{
+    if(e.target.classList.contains("drag-handle"))return;
+    S.editMember=member;S.modal="member";render();
+  });
+  // Drop target
+  td.addEventListener("dragover",e=>{e.preventDefault();});
+  td.addEventListener("mouseenter",()=>{
+    if(!S.memberDrag||S.memberDrag.memberId===member.id)return;
+    if(S.memberDrag.team!==member.team)return;
+    const row=td.closest("tr");if(row)row.classList.add("drag-over-row");
+  });
+  td.addEventListener("mouseleave",()=>{
+    const row=td.closest("tr");if(row)row.classList.remove("drag-over-row");
+  });
+  td.addEventListener("mouseup",()=>{
+    const row=td.closest("tr");if(row)row.classList.remove("drag-over-row");
+    if(!S.memberDrag||S.memberDrag.memberId===member.id)return;
+    if(S.memberDrag.team!==member.team){S.memberDrag=null;return;}
+    // Réordonner
+    const team=S.memberDrag.team;
+    const teamMembers=S.members.filter(m=>m.team===team);
+    const others=S.members.filter(m=>m.team!==team);
+    const fromIdx=teamMembers.findIndex(m=>m.id===S.memberDrag.memberId);
+    const toIdx=teamMembers.findIndex(m=>m.id===member.id);
+    if(fromIdx>=0&&toIdx>=0&&fromIdx!==toIdx){
+      const reordered=[...teamMembers];
+      const [moved]=reordered.splice(fromIdx,1);
+      reordered.splice(toIdx,0,moved);
+      // Reconstruire S.members en préservant l'ordre inter-équipes
+      const allTeams=[...new Set(S.members.map(m=>m.team))];
+      S.members=allTeams.flatMap(t=>t===team?reordered:S.members.filter(m=>m.team===t));
+      persist();render();
+    }
+    S.memberDrag=null;
+  });
   return td;
 }
 function makeTdPost(member){
