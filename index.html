@@ -428,13 +428,7 @@ async function _deleteKey(planKey){
 
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
-// Annuler le drag membre si on relâche ailleurs
-document.addEventListener("mouseup",()=>{
-  if(S.memberDrag){
-    document.querySelectorAll(".dragging-row").forEach(r=>r.classList.remove("dragging-row"));
-    S.memberDrag=null;
-  }
-});
+
 function addDays(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r;}
 // Toujours utiliser les parties locales (évite le décalage UTC+1/+2)
 function fmtDate(d){
@@ -742,13 +736,60 @@ function makeTdName(member){
     handle.className="drag-handle";handle.textContent="⋮⋮";handle.title="Glisser pour réordonner";
     handle.addEventListener("mousedown",e=>{
       e.preventDefault();e.stopPropagation();
-      S.memberDrag={memberId:member.id,team:member.team};
-      const row=td.closest("tr");if(row)row.classList.add("dragging-row");
+      S.memberDrag={memberId:member.id,team:member.team,targetId:null};
     });
+    // Support tactile mobile
+    handle.style.touchAction="none";
+    handle.addEventListener("touchstart",e=>{
+      e.preventDefault();e.stopPropagation();
+      S.memberDrag={memberId:member.id,team:member.team,targetId:null};
+    },{passive:false});
+    handle.addEventListener("touchmove",e=>{
+      if(!S.memberDrag)return;
+      e.preventDefault();
+      const t=e.touches[0];
+      const el=document.elementFromPoint(t.clientX,t.clientY);
+      const targetTd=el?.closest(".td-name");
+      document.querySelectorAll(".drag-over-row").forEach(r=>r.classList.remove("drag-over-row"));
+      if(targetTd&&targetTd!==td){
+        const targetMid=targetTd.dataset.mid;
+        if(targetMid&&targetMid!==S.memberDrag.memberId){
+          const tMember=S.members.find(m=>m.id===targetMid);
+          if(tMember&&tMember.team===S.memberDrag.team){
+            S.memberDrag.targetId=targetMid;
+            targetTd.closest("tr")?.classList.add("drag-over-row");
+          }
+        }
+      }
+    },{passive:false});
+    handle.addEventListener("touchend",e=>{
+      e.preventDefault();
+      document.querySelectorAll(".drag-over-row,.dragging-row").forEach(r=>r.classList.remove("drag-over-row","dragging-row"));
+      if(!S.memberDrag)return;
+      const{memberId,team,targetId}=S.memberDrag;S.memberDrag=null;
+      if(!targetId||memberId===targetId)return;
+      const tm=S.members.filter(m=>m.team===team);
+      const fi=tm.findIndex(m=>m.id===memberId),ti=tm.findIndex(m=>m.id===targetId);
+      if(fi<0||ti<0||fi===ti)return;
+      const r=[...tm];const[mv]=r.splice(fi,1);r.splice(ti,0,mv);
+      const at=[...new Set(S.members.map(m=>m.team))];
+      S.members=at.flatMap(t=>t===team?r:S.members.filter(m=>m.team===t));
+      persist();render();
+    },{passive:false});
     td.appendChild(handle);
   }
   const nameSpan=document.createElement("span");nameSpan.textContent=member.name;
   td.appendChild(nameSpan);
+  td.dataset.mid=member.id;
+  // Cible du drop : survol pendant drag
+  td.addEventListener("mouseover",e=>{
+    if(!S.memberDrag||S.memberDrag.memberId===member.id)return;
+    if(S.memberDrag.team!==member.team)return;
+    S.memberDrag.targetId=member.id;
+    document.querySelectorAll(".drag-over-row").forEach(r=>r.classList.remove("drag-over-row"));
+    const row=td.closest("tr");if(row)row.classList.add("drag-over-row");
+  });
+  // Long press / dblclick pour modifier (uniquement si pas de drag en cours)
   let pt=null;
   td.addEventListener("touchstart",e=>{
     if(e.target.classList.contains("drag-handle"))return;
@@ -759,39 +800,27 @@ function makeTdName(member){
     if(e.target.classList.contains("drag-handle"))return;
     S.editMember=member;S.modal="member";render();
   });
-  // Drop target
-  td.addEventListener("dragover",e=>{e.preventDefault();});
-  td.addEventListener("mouseenter",()=>{
-    if(!S.memberDrag||S.memberDrag.memberId===member.id)return;
-    if(S.memberDrag.team!==member.team)return;
-    const row=td.closest("tr");if(row)row.classList.add("drag-over-row");
-  });
-  td.addEventListener("mouseleave",()=>{
-    const row=td.closest("tr");if(row)row.classList.remove("drag-over-row");
-  });
-  td.addEventListener("mouseup",()=>{
-    const row=td.closest("tr");if(row)row.classList.remove("drag-over-row");
-    if(!S.memberDrag||S.memberDrag.memberId===member.id)return;
-    if(S.memberDrag.team!==member.team){S.memberDrag=null;return;}
-    // Réordonner
-    const team=S.memberDrag.team;
-    const teamMembers=S.members.filter(m=>m.team===team);
-    const others=S.members.filter(m=>m.team!==team);
-    const fromIdx=teamMembers.findIndex(m=>m.id===S.memberDrag.memberId);
-    const toIdx=teamMembers.findIndex(m=>m.id===member.id);
-    if(fromIdx>=0&&toIdx>=0&&fromIdx!==toIdx){
-      const reordered=[...teamMembers];
-      const [moved]=reordered.splice(fromIdx,1);
-      reordered.splice(toIdx,0,moved);
-      // Reconstruire S.members en préservant l'ordre inter-équipes
-      const allTeams=[...new Set(S.members.map(m=>m.team))];
-      S.members=allTeams.flatMap(t=>t===team?reordered:S.members.filter(m=>m.team===t));
-      persist();render();
-    }
-    S.memberDrag=null;
-  });
   return td;
 }
+
+// Réordonnancement sur mouseup global
+document.addEventListener("mouseup",()=>{
+  document.querySelectorAll(".drag-over-row").forEach(r=>r.classList.remove("drag-over-row"));
+  if(!S.memberDrag)return;
+  const{memberId,team,targetId}=S.memberDrag;
+  S.memberDrag=null;
+  if(!targetId||memberId===targetId)return;
+  const teamMembers=S.members.filter(m=>m.team===team);
+  const fromIdx=teamMembers.findIndex(m=>m.id===memberId);
+  const toIdx=teamMembers.findIndex(m=>m.id===targetId);
+  if(fromIdx<0||toIdx<0||fromIdx===toIdx)return;
+  const reordered=[...teamMembers];
+  const[moved]=reordered.splice(fromIdx,1);
+  reordered.splice(toIdx,0,moved);
+  const allTeams=[...new Set(S.members.map(m=>m.team))];
+  S.members=allTeams.flatMap(t=>t===team?reordered:S.members.filter(m=>m.team===t));
+  persist();render();
+});
 function makeTdPost(member){
   const td=document.createElement("td");td.className="td-post";
   const inp=mk("input","",{type:"text"});
@@ -1233,10 +1262,14 @@ function buildActivityModal(){
       ]));
     } else {
       // Écran principal : liste des activités
+      // Non-admin : uniquement CP, DP, TP
+      const USER_ALLOWED=["CP","DP","TP"];
       Object.entries(AG).forEach(([grp,codes])=>{
+        const filtered=isAdmin()?codes:codes.filter(c=>USER_ALLOWED.includes(c));
+        if(filtered.length===0)return;
         body.push(mk("p","grp-label",{},[grp]));
         const grid=mk("div","act-grid");
-        codes.forEach(code=>{
+        filtered.forEach(code=>{
           const a=ACTS[code];if(!a)return;
           const isCustom=customCodes.includes(code);
           const btn=mk("button","act-btn",{onClick:()=>{
@@ -1247,7 +1280,6 @@ function buildActivityModal(){
               cells.forEach(k=>{S.planning[k]={act:code,comment};});
               persist();
               if(code==="CRC"){
-                // Afficher le tableau de bord CRC après la saisie
                 S.actCells=[];S.modal="crcDashboard";render();
               } else {
                 S.modal=null;S.actCells=[];render();
