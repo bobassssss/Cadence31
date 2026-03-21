@@ -2947,7 +2947,7 @@ function buildRequestBasketModal(){
         },["✕"])
       ]))
     );
-    return mk("div",{},[badge,ul]);
+    return mk("div","",{},[badge,ul]);
   });
 
   const icon=mk("div","",{style:{fontSize:"32px",textAlign:"center",marginBottom:"6px"}},["📋"]);
@@ -3015,7 +3015,7 @@ function buildRequestsAdminModal(){
         validatedLabel?mk("span","",{style:{color:"#6b7280"}},[` → sera transformé en ${validatedLabel}`]):""
       ].filter(Boolean));
       const datesList=mk("ul","",{style:{margin:"4px 0 6px 14px",padding:0,fontSize:"12px",color:"#4b5563"}},
-        req.entries.map(e=>mk("li",{},[`${e.date_label||e.key} (${e.slot==="AM"?"Matin":"Après-midi"})`]))
+        req.entries.map(e=>mk("li","",{},[`${e.date_label||e.key} (${e.slot==="AM"?"Matin":"Après-midi"})`]))
       );
 
       const btns=isPending?mk("div","",{style:{display:"flex",gap:"6px"}},[
