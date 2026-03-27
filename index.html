@@ -2929,13 +2929,19 @@ async function logout(){
 // ─── IMPORT M-WORK ────────────────────────────────────────────────────────────
 // IDs m-work → codes activité notre app
 const MW_LOC_MAP={
-  "69bbb7c35493f0f79bbea06c":"F",   // Formation (lieu)
-  "69bbb7c335d5cda3d7955698":"DP",  // Délégation (lieu)
-  "69bbb7c37a5c0285bc230597":"R",   // Réunion (lieu)
+  "69bbb7c35493f0f79bbea06c":"F",   // Formation (lieu spécial)
+  "69bbb7c335d5cda3d7955698":"DP",  // Délégation (lieu spécial)
+  "69bbb7c37a5c0285bc230597":"R",   // Réunion (lieu spécial)
+  // CRC — tous les lieux "CENTRE DE RELATION CLIENT"
+  "693186ac23c0c0a98643b08a":"CRC", // CRC EST
+  "693047383d2051bb1311017d":"CRC", // CRC CENTRE
+  "6930485568a91fe7e5cda5aa":"CRC", // CRC NORD
+  "6931879cd33cf9536abee1dc":"CRC", // CRC SUD
+  "693188920fd2a98023b4c991":"CRC", // CRC OUEST
 };
 const MW_OFFTYPE_MAP={
-  "6971f8464b4fb9488a457602":"CP",  // Congés prévisionnels
-  "69bbc128f6da1a436abc2e9b":"F",   // Formation (off)
+  "6971f8464b4fb9488a457602":"CV",  // Congés prévisionnels → déjà validés dans m-work → CV
+  "69bbc128f6da1a436abc2e9b":"F",   // Formation
   "69bbc1377a47336ded783622":"O",   // École (alternant)
   "69bbc1998d2c83a034dab0e2":"O",   // Autre absence
 };
@@ -2992,20 +2998,64 @@ function _mwUserToEntries(mwUser,ourMemberId){
     entries[key]={act,comment:""};
   };
 
+  // Construire la map locationId → nom depuis les données m-work
+  const mwLocMap=S._mwState?.mwData?.json?.company?.locations
+    ? Object.fromEntries(S._mwState.mwData.json.company.locations.map(l=>[l.id,l.name]))
+    : {};
+  const mainLocId=mwUser.mainLocationId||"";
+
+  // Résoudre un nom d'agence m-work → code activité de notre app (EQ1, EQ2, site perso…)
+  const ACTS=buildACTS();
+  function _mwLocToActCode(locName){
+    if(!locName)return null;
+    const norm=_normName(locName);
+    // Chercher parmi toutes les activités dont le label ressemble
+    let best=null,bestScore=0;
+    Object.entries(ACTS).forEach(([code,a])=>{
+      if(!a.l)return;
+      const al=_normName(a.l);
+      // Score : correspondance exacte > contenu > mots communs
+      let score=0;
+      if(al===norm)score=10;
+      else if(al.includes(norm)||norm.includes(al))score=5;
+      else{
+        // Compter les mots en commun
+        const wa=new Set(al.split(" "));
+        const wn=norm.split(" ");
+        const common=wn.filter(w=>w.length>3&&wa.has(w)).length;
+        if(common>0)score=common;
+      }
+      if(score>bestScore){bestScore=score;best=code;}
+    });
+    return bestScore>=2?best:null;
+  }
+
   // 1. Shifts de base (présence / absence)
   mwUser.scheduledShifts.forEach(s=>{
     const date=s.planningDate;
     const slot=s.dayPart;
     if(!date||!slot)return;
-    let act;
+    let act,comment="";
     if(s.type==="office"){
-      act=MW_LOC_MAP[s.locationId]||".";
+      const locId=s.locationId||"";
+      if(MW_LOC_MAP[locId]){
+        // Lieu spécial connu (Formation, CRC, Réunion…)
+        act=MW_LOC_MAP[locId];
+      } else if(locId&&locId!==mainLocId){
+        // Agence différente → chercher le code activité correspondant
+        const locName=mwLocMap[locId]||"";
+        act=_mwLocToActCode(locName)||".";
+        if(act===".")comment=locName; // non trouvé → présent avec commentaire
+      } else {
+        act=".";
+      }
     } else if(s.type==="off"){
-      // offTypeId présent → type d'absence spécifique
-      // pas d'offTypeId → repos simple
       act=s.offTypeId?MW_OFFTYPE_MAP[s.offTypeId]||"O":"/";
     }
-    if(act)addEntry(date,slot,act);
+    if(act){
+      const key=`${ourMemberId}|${date}|${slot}`;
+      if(!entries[key])entries[key]={act,comment};
+    }
   });
 
   // 2. Activités Accueil/GDV (écrasent le shift)
