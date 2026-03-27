@@ -3097,34 +3097,107 @@ function buildImportMworkModal(){
     cookieInp.addEventListener("input",()=>{mw.cookie=cookieInp.value.trim();});
     box.appendChild(mk("div","frow",{style:{marginBottom:"10px"}},[mk("label","lf",{},["Cookie de session"]),cookieInp]));
 
-    const monthInp=mk("input","",{type:"month"});
     const now=new Date();
-    monthInp.value=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+    const curYear=now.getFullYear();
+
+    // Sélecteur de période : mois ou année civile
+    const modeRow=mk("div","frow",{style:{marginBottom:"10px",display:"flex",gap:"8px",alignItems:"center"}},[
+      mk("label","lf",{style:{minWidth:"90px"}},["Période"]),
+    ]);
+    const btnMonth=mk("button","btn",{style:{flex:"1",background:mw.yearMode?"#f3f4f6":"#2563eb",color:mw.yearMode?"#374151":"#fff"}},["Par mois"]);
+    const btnYear=mk("button","btn",{style:{flex:"1",background:mw.yearMode?"#2563eb":"#f3f4f6",color:mw.yearMode?"#fff":"#374151"}},["Année civile"]);
+    btnMonth.addEventListener("click",()=>{
+      mw.yearMode=false;
+      btnMonth.style.background="#2563eb";btnMonth.style.color="#fff";
+      btnYear.style.background="#f3f4f6";btnYear.style.color="#374151";
+      monthRow.style.display="flex";yearRow.style.display="none";
+    });
+    btnYear.addEventListener("click",()=>{
+      mw.yearMode=true;
+      btnYear.style.background="#2563eb";btnYear.style.color="#fff";
+      btnMonth.style.background="#f3f4f6";btnMonth.style.color="#374151";
+      monthRow.style.display="none";yearRow.style.display="flex";
+    });
+    modeRow.appendChild(btnMonth);modeRow.appendChild(btnYear);
+    box.appendChild(modeRow);
+
+    // Sélecteur mois
+    const monthInp=mk("input","",{type:"month"});
+    monthInp.value=`${curYear}-${String(now.getMonth()+1).padStart(2,"0")}`;
+    if(!mw.date)mw.date=`${curYear}-${String(now.getMonth()+1).padStart(2,"0")}-01`;
     monthInp.addEventListener("change",()=>{
       const[y,m]=monthInp.value.split("-");
       mw.date=`${y}-${m}-01`;
     });
-    box.appendChild(mk("div","frow",{style:{marginBottom:"14px"}},[mk("label","lf",{},["Mois à importer"]),monthInp]));
+    const monthRow=mk("div","frow",{style:{marginBottom:"10px",display:mw.yearMode?"none":"flex"}},[
+      mk("label","lf",{style:{minWidth:"90px"}},["Mois"]),monthInp]);
+    box.appendChild(monthRow);
+
+    // Sélecteur année
+    const yearSel=mk("select","",{style:{flex:"1",padding:"4px",fontSize:"13px"}});
+    [curYear-1,curYear,curYear+1].forEach(y=>{
+      const opt=mk("option","",{value:String(y)},[String(y)]);
+      if(y===curYear)opt.selected=true;
+      yearSel.appendChild(opt);
+    });
+    if(!mw.year)mw.year=curYear;
+    yearSel.addEventListener("change",()=>{mw.year=parseInt(yearSel.value);});
+    const yearRow=mk("div","frow",{style:{marginBottom:"10px",display:mw.yearMode?"flex":"none"}},[
+      mk("label","lf",{style:{minWidth:"90px"}},["Année"]),yearSel]);
+    box.appendChild(yearRow);
 
     const errEl=mk("p","",{style:{color:"#ef4444",fontSize:"12px",minHeight:"18px",margin:"0 0 8px"}});
     const btnFetch=mk("button","btn",{
       style:{background:"#2563eb",color:"#fff",width:"100%"},
       onClick:async()=>{
         if(!mw.cookie){errEl.textContent="Cookie requis";return;}
-        btnFetch.disabled=true;btnFetch.textContent="Chargement…";errEl.textContent="";
+        btnFetch.disabled=true;errEl.textContent="";
+
         try{
-          const resp=await fetch(MW_PROXY_URL,{
-            method:"POST",
-            headers:{"Content-Type":"application/json","Authorization":`Bearer ${_SKEY}`},
-            body:JSON.stringify({cookie:mw.cookie,date:mw.date,mode:"month"}),
-          });
-          if(!resp.ok){const t=await resp.text();throw new Error(t);}
-          const data=await resp.json();
-          if(data.error)throw new Error(data.error);
-          mw.mwData=data;
-          // Construire le mapping automatique
-          const mwUsers=data.json.planner.users;
-          mw.mapping=mwUsers.map(u=>({
+          // Construire la liste des mois à fetcher
+          let months=[];
+          if(mw.yearMode){
+            btnFetch.textContent="Chargement 1/12…";
+            for(let m=1;m<=12;m++){
+              months.push(`${mw.year}-${String(m).padStart(2,"0")}-01`);
+            }
+          } else {
+            months=[mw.date||`${curYear}-01-01`];
+            btnFetch.textContent="Chargement…";
+          }
+
+          // Fetcher chaque mois et fusionner les données users
+          let mergedUsers=null;
+          let baseData=null;
+          for(let i=0;i<months.length;i++){
+            if(months.length>1)btnFetch.textContent=`Chargement ${i+1}/${months.length}…`;
+            const resp=await fetch(MW_PROXY_URL,{
+              method:"POST",
+              headers:{"Content-Type":"application/json","Authorization":`Bearer ${_SKEY}`},
+              body:JSON.stringify({cookie:mw.cookie,date:months[i],mode:"month"}),
+            });
+            if(!resp.ok){const t=await resp.text();throw new Error(t);}
+            const data=await resp.json();
+            if(data.error)throw new Error(data.error);
+            if(!baseData){baseData=data;mergedUsers=data.json.planner.users.map(u=>({...u,scheduledShifts:[...u.scheduledShifts],activities:[...u.activities]}));}
+            else{
+              // Fusionner shifts et activities de chaque mois
+              data.json.planner.users.forEach(mu=>{
+                const existing=mergedUsers.find(u=>u.id===mu.id);
+                if(existing){
+                  existing.scheduledShifts.push(...mu.scheduledShifts);
+                  existing.activities.push(...mu.activities);
+                }
+              });
+            }
+          }
+          // Reconstruire mwData avec les users fusionnés
+          baseData.json.planner.users=mergedUsers;
+          mw.mwData=baseData;
+          mw.yearMode?mw.importLabel=`Année ${mw.year}`:mw.importLabel=`${months[0].slice(0,7)}`;
+
+          // Mapping membres
+          mw.mapping=mergedUsers.map(u=>({
             mwId:u.id,mwName:`${u.firstName} ${u.lastName}`,
             mwUser:u,
             ourMember:_suggestMember(u.firstName,u.lastName),
@@ -3195,7 +3268,7 @@ function buildImportMworkModal(){
     box.appendChild(mk("p","",{style:{fontSize:"13px",margin:"0 0 4px"}},[
       `✓ ${mapped.length} membres · ${mw._totalEntries||"?"} créneaux à importer`]));
     box.appendChild(mk("p","",{style:{fontSize:"12px",color:"#6b7280",margin:"0 0 12px"}},[
-      `Mois : ${mw.date.slice(0,7)} — Les créneaux existants seront écrasés.`]));
+      `Période : ${mw.importLabel||mw.date?.slice(0,7)||"?"} — Les créneaux existants seront écrasés.`]));
 
     // Résumé par membre
     const summaryRows=mapped.map(m=>{
