@@ -2939,15 +2939,11 @@ const MW_OFFTYPE_MAP={
   "69bbc1377a47336ded783622":"O",   // École (alternant)
   "69bbc1998d2c83a034dab0e2":"O",   // Autre absence
 };
-// Activités m-work (activityId) → code notre app
-// Seules celles qui changent réellement l'activité par rapport au shift de base
+// Activités m-work (activityId) → type générique (résolu en code équipe dynamiquement)
 const MW_ACT_MAP={
-  "693044cf95f42df999d1beab":"R",   // Réunion
-  "693044da127fe6908b2827b2":"R",   // Entretien mensuel activité
-  "693044efd4b0e1b8fb896688":"F",   // Formation
-  "693045002cc61e9175a0edb4":"O",   // Congés et absences
-  "69bbbef97a47336ded78361e":"S",   // Renfort accueil
-  // Les autres (Contact+, Prépa RDV, RDV agence…) = présent sur site → on laisse le shift décider
+  "69304523127fe6908b2827b4":"ACCUEIL", // Accueil
+  "69bbbef97a47336ded78361e":"ACCUEIL", // Renfort accueil
+  "693044c2e4c31c90fc922c80":"GDV",     // Gestion des valeurs
 };
 const MW_PLANNER_ID="69aea462646ef8fbf8ebd9ee";
 const MW_COMPANY_ID="693042e16ec252fe0f990934";
@@ -2977,12 +2973,22 @@ function _mwSlot(startDateStr){
 }
 
 // Convertit les données m-work d'un user en entrées planning
-// Priorité : activités connues > shift type off > shift type office
+// Priorité : activités ACCUEIL/GDV > shift type off > shift type office
 function _mwUserToEntries(mwUser,ourMemberId){
   const entries={};
+
+  // Résoudre le code équipe du membre dans notre app
+  const ourMember=S.members.find(m=>m.id===ourMemberId);
+  const teams=getTeams();
+  const teamIdx=ourMember?teams.indexOf(ourMember.team):-1;
+  const n=teamIdx>=0?teamIdx+1:1;
+  // Codes équipe dynamiques
+  const ACCUEIL_CODE=`A${n}`;  // ex: A1, A2…
+  const GDV_CODE=`G${n}`;      // ex: G1, G2…
+
   const addEntry=(date,slot,act,override=false)=>{
     const key=`${ourMemberId}|${date}|${slot}`;
-    if(!override&&entries[key])return; // ne pas écraser sauf si override
+    if(!override&&entries[key])return;
     entries[key]={act,comment:""};
   };
 
@@ -2995,19 +3001,22 @@ function _mwUserToEntries(mwUser,ourMemberId){
     if(s.type==="office"){
       act=MW_LOC_MAP[s.locationId]||".";
     } else if(s.type==="off"){
-      act=MW_OFFTYPE_MAP[s.offTypeId]||"/";
+      // offTypeId présent → type d'absence spécifique
+      // pas d'offTypeId → repos simple
+      act=s.offTypeId?MW_OFFTYPE_MAP[s.offTypeId]||"O":"/";
     }
     if(act)addEntry(date,slot,act);
   });
 
-  // 2. Activités spécifiques (écrasent le shift si connues dans MW_ACT_MAP)
+  // 2. Activités Accueil/GDV (écrasent le shift)
   (mwUser.activities||[]).forEach(a=>{
-    const mappedAct=MW_ACT_MAP[a.activityId];
-    if(!mappedAct)return; // activité non mappée → on garde le shift
+    const type=MW_ACT_MAP[a.activityId];
+    if(!type)return;
     const date=a.startDate?.slice(0,10);
     if(!date)return;
     const slot=_mwSlot(a.startDate);
-    addEntry(date,slot,mappedAct,true); // override
+    const act=type==="ACCUEIL"?ACCUEIL_CODE:GDV_CODE;
+    addEntry(date,slot,act,true);
   });
 
   return entries;
