@@ -1504,20 +1504,50 @@ function buildMemberModal(){
   const emailInp=mk("input","",{type:"email",placeholder:"prenom.nom@exemple.com"});
   emailInp.value=m?m.email||"":"";
   inputs.email=emailInp;
+  const inviteStatus=mk("p","",{style:{fontSize:"10px",marginTop:"2px",color:"#94a3b8"}},
+    ["Permet au collaborateur de saisir ses congés depuis son propre compte."]);
   bodyEls.push(mk("div","frow",{},[
-    mk("label","lf",{},["Email (compte utilisateur Supabase)"]),
+    mk("label","lf",{},["Email (compte utilisateur)"]),
     emailInp,
-    mk("p","",{style:{fontSize:"10px",color:"#94a3b8",marginTop:"2px"}},["Permet au collaborateur de saisir ses congés depuis son propre compte."]),
+    inviteStatus,
   ]));
-  const doSave=()=>{
+  const doSave=async()=>{
     const nm=inputs.name.value.trim();if(!nm)return;
     const rawTeam=inputs.team.value;
     const teamVal=rawTeam==="__new__"?(inputs.newTeamInp.value.trim()||"Nouvelle équipe"):rawTeam;
     const postVal=inputs.post.value.trim();
     const emailVal=inputs.email.value.trim().toLowerCase()||"";
+    const oldEmail=m?.email||"";
     if(m)S.members=S.members.map(x=>x.id===m.id?{...x,name:nm,team:teamVal,post:postVal||x.post,email:emailVal}:x);
     else S.members.push({id:"m"+Date.now(),name:nm,team:teamVal,post:postVal,email:emailVal});
-    persist();close();
+    persist();
+    // Envoyer invitation Supabase si email nouveau ou modifié
+    if(emailVal&&emailVal!==oldEmail&&_sb){
+      inviteStatus.textContent="Envoi de l'invitation…";
+      inviteStatus.style.color="#2563eb";
+      try{
+        const{error}=await _sb.auth.admin.inviteUserByEmail(emailVal,{
+          data:{name:nm},
+        });
+        if(error&&error.message?.includes("already")){
+          inviteStatus.textContent="✓ Compte existant — pas de nouvel envoi.";
+          inviteStatus.style.color="#16a34a";
+        } else if(error){
+          inviteStatus.textContent="⚠ "+error.message;
+          inviteStatus.style.color="#ef4444";
+          return; // ne pas fermer si erreur
+        } else {
+          inviteStatus.textContent="✉ Invitation envoyée à "+emailVal;
+          inviteStatus.style.color="#16a34a";
+          await new Promise(r=>setTimeout(r,1500)); // laisser voir le message
+        }
+      }catch(e){
+        inviteStatus.textContent="⚠ Erreur invitation : "+e.message;
+        inviteStatus.style.color="#ef4444";
+        return;
+      }
+    }
+    close();
   };
   const footer=[mk("button","btn",{onClick:close},["Annuler"]),mk("button","btn primary",{onClick:doSave},[m?"Enregistrer":"Ajouter"])];
   if(m)footer.unshift(mk("button","btn danger",{onClick:()=>{if(confirm("Supprimer "+m.name+" ?")){
