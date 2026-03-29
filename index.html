@@ -3069,6 +3069,27 @@ function _mwUserToEntries(mwUser,ourMemberId){
     addEntry(date,slot,act,true);
   });
 
+  // 3. Demandes d'absence (timeOffRequests) → CP
+  // Ces demandes sont en attente de validation → on les importe en CP
+  (mwUser.timeOffRequests||[]).forEach(r=>{
+    // Une demande couvre une plage de dates
+    const debut=r.startDate?.slice(0,10)||r.date?.slice(0,10);
+    const fin=r.endDate?.slice(0,10)||debut;
+    if(!debut)return;
+    // Générer toutes les dates de la plage
+    const d=new Date(debut);
+    const f=new Date(fin);
+    while(d<=f){
+      if(d.getDay()!==0){ // pas dimanche
+        const dateStr=fmtDate(d);
+        // Déterminer les slots selon dayPart si disponible
+        const slots=r.dayPart?[r.dayPart]:["AM","PM"];
+        slots.forEach(slot=>addEntry(dateStr,slot,"CP",true)); // écrase le planning existant
+      }
+      d.setDate(d.getDate()+1);
+    }
+  });
+
   return entries;
 }
 
