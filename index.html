@@ -214,9 +214,10 @@ input:focus,select:focus{border-color:#93c5fd;background:#fff}
 <div id="ls">
   <div class="lc">
     <div class="ll">Planning équipe</div>
-    <div class="ls2">Connectez-vous pour accéder</div>
+    <div class="ls2" id="ls-title">Connectez-vous pour accéder</div>
     <input type="email" id="lem" placeholder="Email" autocomplete="email">
     <input type="password" id="lpw" placeholder="Mot de passe" autocomplete="current-password">
+    <input type="password" id="lpw2" placeholder="Confirmer le mot de passe" style="display:none">
     <button class="lb" id="lbtn">Se connecter</button>
     <div class="le" id="lerr"></div>
   </div>
@@ -2929,19 +2930,61 @@ async function _initSB(){
   _sb=window.supabase.createClient(_SURL,_SKEY);
 }
 
+// ─── GESTION TOKEN INVITATION ────────────────────────────────────────────────
+// Détecte si l'URL contient un token d'invitation et bascule en mode "créer mot de passe"
+let _inviteMode=false;
+
+async function _checkInviteToken(){
+  const hash=window.location.hash;
+  // Supabase met le token dans le hash : #access_token=...&type=invite
+  if(!hash.includes("type=invite")&&!hash.includes("type=recovery"))return;
+  await _initSB();
+  // Extraire les params du hash
+  const params=new URLSearchParams(hash.replace("#",""));
+  const accessToken=params.get("access_token");
+  const refreshToken=params.get("refresh_token");
+  if(!accessToken)return;
+  // Définir la session temporaire
+  const{data,error}=await _sb.auth.setSession({access_token:accessToken,refresh_token:refreshToken||""});
+  if(error||!data.user)return;
+  // Basculer en mode création de mot de passe
+  _inviteMode=true;
+  document.getElementById("ls-title").textContent="Créez votre mot de passe";
+  document.getElementById("lem").style.display="none";
+  document.getElementById("lpw").placeholder="Nouveau mot de passe (8 caractères min.)";
+  document.getElementById("lpw2").style.display="block";
+  document.getElementById("lbtn").textContent="Définir mon mot de passe";
+  // Nettoyer l'URL
+  history.replaceState(null,"",window.location.pathname);
+}
+
 document.getElementById("lbtn").addEventListener("click",async function(){
-  const email=document.getElementById("lem").value.trim();
-  const pwd=document.getElementById("lpw").value;
   const errDiv=document.getElementById("lerr");
   this.textContent="...";this.disabled=true;errDiv.textContent="";
   try{
     await _initSB();
-    const{data,error}=await _sb.auth.signInWithPassword({email,password:pwd});
-    if(error){errDiv.textContent="Email ou mot de passe incorrect";this.textContent="Se connecter";this.disabled=false;return;}
-    _showApp(data.user);
-  }catch(e){errDiv.textContent="Erreur réseau";this.textContent="Se connecter";this.disabled=false;}
+    if(_inviteMode){
+      // Mode création de mot de passe
+      const pwd=document.getElementById("lpw").value;
+      const pwd2=document.getElementById("lpw2").value;
+      if(pwd.length<8){errDiv.textContent="Mot de passe trop court (8 caractères min.)";this.textContent="Définir mon mot de passe";this.disabled=false;return;}
+      if(pwd!==pwd2){errDiv.textContent="Les mots de passe ne correspondent pas";this.textContent="Définir mon mot de passe";this.disabled=false;return;}
+      const{data,error}=await _sb.auth.updateUser({password:pwd});
+      if(error){errDiv.textContent="Erreur : "+error.message;this.textContent="Définir mon mot de passe";this.disabled=false;return;}
+      _inviteMode=false;
+      _showApp(data.user);
+    } else {
+      // Mode connexion normale
+      const email=document.getElementById("lem").value.trim();
+      const pwd=document.getElementById("lpw").value;
+      const{data,error}=await _sb.auth.signInWithPassword({email,password:pwd});
+      if(error){errDiv.textContent="Email ou mot de passe incorrect";this.textContent="Se connecter";this.disabled=false;return;}
+      _showApp(data.user);
+    }
+  }catch(e){errDiv.textContent="Erreur réseau";this.textContent=_inviteMode?"Définir mon mot de passe":"Se connecter";this.disabled=false;}
 });
 document.getElementById("lpw").addEventListener("keydown",function(e){if(e.key==="Enter")document.getElementById("lbtn").click();});
+document.getElementById("lpw2").addEventListener("keydown",function(e){if(e.key==="Enter")document.getElementById("lbtn").click();});
 
 // Logout
 async function logout(){
@@ -2968,6 +3011,9 @@ async function logout(){
   s.src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js";
   s.onload=async function(){
     await _initSB();
+    // Vérifier d'abord si on a un token d'invitation dans l'URL
+    await _checkInviteToken();
+    if(_inviteMode)return; // mode invitation → ne pas vérifier la session
     const{data:{session}}=await _sb.auth.getSession();
     if(session&&session.user){_showApp(session.user);}
     // else: login screen already visible
