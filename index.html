@@ -1526,20 +1526,24 @@ function buildMemberModal(){
       inviteStatus.textContent="Envoi de l'invitation…";
       inviteStatus.style.color="#2563eb";
       try{
-        const{error}=await _sb.auth.admin.inviteUserByEmail(emailVal,{
-          data:{name:nm},
+        const resp=await fetch("https://cadence31.vercel.app/api/invite-user",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({email:emailVal,name:nm}),
         });
-        if(error&&error.message?.includes("already")){
+        const result=await resp.json();
+        if(!resp.ok){
+          inviteStatus.textContent="⚠ "+result.error;
+          inviteStatus.style.color="#ef4444";
+          return;
+        }
+        if(result.existing){
           inviteStatus.textContent="✓ Compte existant — pas de nouvel envoi.";
           inviteStatus.style.color="#16a34a";
-        } else if(error){
-          inviteStatus.textContent="⚠ "+error.message;
-          inviteStatus.style.color="#ef4444";
-          return; // ne pas fermer si erreur
         } else {
           inviteStatus.textContent="✉ Invitation envoyée à "+emailVal;
           inviteStatus.style.color="#16a34a";
-          await new Promise(r=>setTimeout(r,1500)); // laisser voir le message
+          await new Promise(r=>setTimeout(r,1500));
         }
       }catch(e){
         inviteStatus.textContent="⚠ Erreur invitation : "+e.message;
