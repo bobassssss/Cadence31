@@ -1,0 +1,31 @@
+const { createClient } = require("@supabase/supabase-js");
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+
+module.exports = async function handler(req, res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "content-type, authorization");
+  if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: "Email requis" });
+
+  const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false }
+  });
+
+  // Chercher l'utilisateur par email
+  const { data: { users }, error: listErr } = await sb.auth.admin.listUsers();
+  if (listErr) return res.status(500).json({ error: listErr.message });
+
+  const user = users.find(u => u.email === email);
+  if (!user) return res.status(200).json({ ok: true, notFound: true });
+
+  // Désactiver le compte
+  const { error } = await sb.auth.admin.updateUserById(user.id, { ban_duration: "876600h" });
+  if (error) return res.status(500).json({ error: error.message });
+
+  return res.status(200).json({ ok: true });
+};
