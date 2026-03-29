@@ -1,12 +1,9 @@
-// api/invite-user.js
-// Envoie une invitation Supabase avec la clé service_role
-
-import { createClient } from "@supabase/supabase-js";
+const { createClient } = require("@supabase/supabase-js");
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "content-type, authorization");
   if (req.method === "OPTIONS") return res.status(200).end();
@@ -24,12 +21,11 @@ export default async function handler(req, res) {
   });
 
   if (error) {
-    // Compte déjà existant → pas une vraie erreur
-    if (error.message?.toLowerCase().includes("already")) {
+    if (error.message && error.message.toLowerCase().includes("already")) {
       return res.status(200).json({ ok: true, existing: true });
     }
     return res.status(400).json({ error: error.message });
   }
 
   return res.status(200).json({ ok: true, existing: false });
-}
+};
