@@ -1521,7 +1521,7 @@ function buildMemberModal(){
     if(m)S.members=S.members.map(x=>x.id===m.id?{...x,name:nm,team:teamVal,post:postVal||x.post,email:emailVal}:x);
     else S.members.push({id:"m"+Date.now(),name:nm,team:teamVal,post:postVal,email:emailVal});
     persist();
-    // Envoyer invitation Supabase si email nouveau ou modifié
+    // Envoyer invitation si email nouveau, désactiver si email effacé
     if(emailVal&&emailVal!==oldEmail&&_sb){
       inviteStatus.textContent="Envoi de l'invitation…";
       inviteStatus.style.color="#2563eb";
@@ -1549,6 +1549,22 @@ function buildMemberModal(){
         inviteStatus.textContent="⚠ Erreur invitation : "+e.message;
         inviteStatus.style.color="#ef4444";
         return;
+      }
+    } else if(!emailVal&&oldEmail){
+      // Email effacé → désactiver le compte
+      inviteStatus.textContent="Désactivation du compte…";
+      inviteStatus.style.color="#f59e0b";
+      try{
+        await fetch("https://cadence31.vercel.app/api/disable-user",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({email:oldEmail}),
+        });
+        inviteStatus.textContent="✓ Compte désactivé.";
+        inviteStatus.style.color="#6b7280";
+        await new Promise(r=>setTimeout(r,1000));
+      }catch(e){
+        // Erreur non bloquante — on ferme quand même
       }
     }
     close();
