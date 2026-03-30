@@ -1539,7 +1539,7 @@ function buildMemberModal(){
           return;
         }
         if(result.existing){
-          inviteStatus.textContent="✉ Compte réactivé — email de réinitialisation envoyé.";
+          inviteStatus.textContent="✉ Invitation envoyée à "+emailVal;
           inviteStatus.style.color="#16a34a";
           await new Promise(r=>setTimeout(r,1500));
         } else {
