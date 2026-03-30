@@ -23,8 +23,8 @@ module.exports = async function handler(req, res) {
   const user = users.find(u => u.email === email);
   if (!user) return res.status(200).json({ ok: true, notFound: true });
 
-  // Désactiver le compte
-  const { error } = await sb.auth.admin.updateUserById(user.id, { ban_duration: "876600h" });
+  // Supprimer le compte définitivement
+  const { error } = await sb.auth.admin.deleteUser(user.id);
   if (error) return res.status(500).json({ error: error.message });
 
   return res.status(200).json({ ok: true });
