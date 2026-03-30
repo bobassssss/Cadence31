@@ -2472,7 +2472,13 @@ function buildCRCDashboard(){
       });
     });
 
-    container.appendChild(mk("div","mfooter",{},[mk("button","btn primary",{onClick:close},["Fermer"])]));
+    container.appendChild(mk("div","mfooter",{},[
+      ...(S.actCells&&S.actCells.length>0?[mk("button","btn danger",{onClick:()=>{
+        S.actCells.forEach(k=>{delete S.planning[k];_deleteKey(k);});
+        persist();S.modal=null;S.actCells=[];render();
+      }},["↺ Supprimer le CRC"])]:[] ),
+      mk("button","btn primary",{onClick:close},["Fermer"]),
+    ]));
   }
 
   rebuild();
@@ -2992,17 +2998,22 @@ async function logout(){
   if(_sb)await _sb.auth.signOut();
   _auth={user:null,isAdmin:false,memberId:null};
   S.pendingEntries=[];
+  _inviteMode=false;
   document.getElementById("app").style.display="none";
   document.getElementById("ls").style.display="flex";
   // Réinitialiser le formulaire
   const em=document.getElementById("lem");
   const pw=document.getElementById("lpw");
+  const pw2=document.getElementById("lpw2");
   const btn=document.getElementById("lbtn");
   const err=document.getElementById("lerr");
-  if(em)em.value="";
-  if(pw)pw.value="";
+  const title=document.getElementById("ls-title");
+  if(em){em.value="";em.style.display="";}
+  if(pw){pw.value="";pw.placeholder="Mot de passe";pw.style.display="";}
+  if(pw2){pw2.value="";pw2.style.display="none";}
   if(btn){btn.textContent="Se connecter";btn.disabled=false;}
   if(err)err.textContent="";
+  if(title)title.textContent="Connectez-vous pour accéder";
   if(em)em.focus();
 }
 
@@ -3167,21 +3178,21 @@ function _mwUserToEntries(mwUser,ourMemberId){
   });
 
   // 3. Demandes d'absence (timeOffRequests) → CP
-  // Ces demandes sont en attente de validation → on les importe en CP
   (mwUser.timeOffRequests||[]).forEach(r=>{
-    // Une demande couvre une plage de dates
-    const debut=r.startDate?.slice(0,10)||r.date?.slice(0,10);
-    const fin=r.endDate?.slice(0,10)||debut;
+    // m-work peut avoir différentes structures selon la version
+    const debut=(r.startDate||r.start||r.start_date||r.from||r.planningDate||r.date||"").slice(0,10);
+    const fin=(r.endDate||r.end||r.end_date||r.to||r.planningDateEnd||debut).slice(0,10);
     if(!debut)return;
-    // Générer toutes les dates de la plage
-    const d=new Date(debut);
-    const f=new Date(fin);
+    const d=new Date(debut+"T12:00:00");
+    const f=new Date((fin||debut)+"T12:00:00");
+    if(isNaN(d.getTime()))return;
     while(d<=f){
-      if(d.getDay()!==0){ // pas dimanche
+      if(d.getDay()!==0){
         const dateStr=fmtDate(d);
-        // Déterminer les slots selon dayPart si disponible
-        const slots=r.dayPart?[r.dayPart]:["AM","PM"];
-        slots.forEach(slot=>addEntry(dateStr,slot,"CP",true)); // écrase le planning existant
+        // Déterminer les slots : si dayPart précisé, sinon AM+PM
+        const dp=r.dayPart||r.day_part||r.period||"";
+        const slots=dp?[dp]:["AM","PM"];
+        slots.forEach(slot=>addEntry(dateStr,slot,"CP",true));
       }
       d.setDate(d.getDate()+1);
     }
@@ -3417,7 +3428,24 @@ function buildImportMworkModal(){
           mapped.forEach(m=>{
             Object.assign(allEntries,_mwUserToEntries(m.mwUser,m.ourMember.id));
           });
+
+          // Collecter les dates de la période importée
+          const allDates=new Set(Object.keys(allEntries).map(k=>k.split("|")[1]));
+          const memberIds=new Set(mapped.map(m=>m.ourMember.id));
+
+          // Supprimer les entrées existantes pour ces membres + ces dates dans Supabase
+          // (sauf temps partiels qui sont dans settings, et jours fériés qui sont calculés)
+          ev.target.textContent="Nettoyage…";
+          for(const mid of memberIds){
+            for(const date of allDates){
+              const keysToDelete=[`${mid}|${date}|AM`,`${mid}|${date}|PM`];
+              keysToDelete.forEach(k=>{delete S.planning[k];});
+              await _sb.from("planning").delete().in("key",keysToDelete);
+            }
+          }
+
           // Upsert dans Supabase
+          ev.target.textContent="Import…";
           const rows=Object.entries(allEntries).map(([key,v])=>({key,act:v.act,comment:"",count_as:null}));
           const chunkSize=200;
           for(let i=0;i<rows.length;i+=chunkSize){
