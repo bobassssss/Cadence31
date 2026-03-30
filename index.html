@@ -404,8 +404,6 @@ async function loadState(){
   _fixSettings();
 }
 
-// Persist debounced — évite trop d'appels simultanés
-let _persistTimer=null;
 // ─── UNDO ────────────────────────────────────────────────────────────────────
 const UNDO_MAX=20;
 function pushUndo(keys){
@@ -435,7 +433,9 @@ async function undoLast(){
   render();
 }
 
-
+// Persist debounced
+let _persistTimer=null;
+function persist(){
   clearTimeout(_persistTimer);
   _persistTimer=setTimeout(_doPersist,800);
 }
@@ -889,7 +889,7 @@ function buildTopBar(){
     ]:[]),
     mk("button","btn",{style:{padding:"6px 9px"},onClick:()=>{S.modal="stats";render();}},[" Statistiques"]),
     mk("button","btn",{onClick:()=>{S.showLegend=!S.showLegend;render();}},[S.showLegend?"Masquer légende":"Légende"]),
-    ...(S.undoStack.length>0?[mk("button","btn",{style:{padding:"6px 9px"},onClick:async()=>{await undoLast();}},["↩ Annuler"])]:[]]),
+    ...(S.undoStack.length>0?[mk("button","btn",{style:{padding:"6px 9px"},onClick:async()=>{await undoLast();}},["↩ Annuler"])]:[] ),
     ...(!isAdmin()&&S.pendingEntries.length>0?[(()=>{
       const btn=mk("button","btn",{style:{padding:"6px 9px",background:"#2563eb",color:"#fff",position:"relative"},onClick:()=>{S.modal="requestBasket";render();}},["📋 Ma demande"]);
       const badge=mk("span","",{style:{position:"absolute",top:"-5px",right:"-5px",background:"#ef4444",color:"#fff",borderRadius:"50%",fontSize:"10px",fontWeight:"bold",width:"16px",height:"16px",display:"flex",alignItems:"center",justifyContent:"center"}},[String(S.pendingEntries.length)]);
