@@ -365,6 +365,8 @@ let S={
   // Workflow demandes (CP/DP/TP)
   requests:[],        // demandes chargées depuis Supabase
   pendingEntries:[],  // panier session : [{cells, code}] — accumulé avant envoi
+  // Historique annulation
+  undoStack:[],       // [{keys:[...], before:{key:{act,comment}|null}}] max 20
 };
 
 function getMonday(d){const r=new Date(d);r.setHours(0,0,0,0);const w=r.getDay();r.setDate(r.getDate()-(w===0?6:w-1));return r;}
@@ -404,7 +406,36 @@ async function loadState(){
 
 // Persist debounced — évite trop d'appels simultanés
 let _persistTimer=null;
-function persist(){
+// ─── UNDO ────────────────────────────────────────────────────────────────────
+const UNDO_MAX=20;
+function pushUndo(keys){
+  // Sauvegarde l'état AVANT modification pour les clés concernées
+  const before={};
+  keys.forEach(k=>{before[k]=S.planning[k]?{...S.planning[k]}:null;});
+  S.undoStack.push({keys,before});
+  if(S.undoStack.length>UNDO_MAX)S.undoStack.shift();
+}
+async function undoLast(){
+  if(!S.undoStack.length)return;
+  const{keys,before}=S.undoStack.pop();
+  const toDelete=[];const toUpsert=[];
+  keys.forEach(k=>{
+    if(before[k]===null){
+      delete S.planning[k];
+      toDelete.push(k);
+    } else {
+      S.planning[k]=before[k];
+      toUpsert.push({key:k,act:before[k].act,comment:before[k].comment||"",count_as:before[k].countAs||null});
+    }
+  });
+  if(_sb){
+    if(toDelete.length)await _sb.from("planning").delete().in("key",toDelete);
+    if(toUpsert.length)await _sb.from("planning").upsert(toUpsert,{onConflict:"key"});
+  }
+  render();
+}
+
+
   clearTimeout(_persistTimer);
   _persistTimer=setTimeout(_doPersist,800);
 }
@@ -858,6 +889,7 @@ function buildTopBar(){
     ]:[]),
     mk("button","btn",{style:{padding:"6px 9px"},onClick:()=>{S.modal="stats";render();}},[" Statistiques"]),
     mk("button","btn",{onClick:()=>{S.showLegend=!S.showLegend;render();}},[S.showLegend?"Masquer légende":"Légende"]),
+    ...(S.undoStack.length>0?[mk("button","btn",{style:{padding:"6px 9px"},onClick:async()=>{await undoLast();}},["↩ Annuler"])]:[]]),
     ...(!isAdmin()&&S.pendingEntries.length>0?[(()=>{
       const btn=mk("button","btn",{style:{padding:"6px 9px",background:"#2563eb",color:"#fff",position:"relative"},onClick:()=>{S.modal="requestBasket";render();}},["📋 Ma demande"]);
       const badge=mk("span","",{style:{position:"absolute",top:"-5px",right:"-5px",background:"#ef4444",color:"#fff",borderRadius:"50%",fontSize:"10px",fontWeight:"bold",width:"16px",height:"16px",display:"flex",alignItems:"center",justifyContent:"center"}},[String(S.pendingEntries.length)]);
@@ -990,10 +1022,18 @@ function makeCoverageRow(team,workDays){
     slots.forEach(slot=>{
       const cov=teamCoverage(team,d,slot);
       const td=document.createElement("td");td.className="td-cov";
-      if(cov.belowMin)td.classList.add("c-danger");
-      else if(!cov.hasAccueil)td.classList.add("c-warn-a");
-      else if(!cov.hasGDV)td.classList.add("c-warn-g");
-      else td.classList.add("c-ok");
+      if(cov.belowMin){
+        td.classList.add("c-danger");
+      } else if(slot==="PM"){
+        // PM : rouge=aucun des deux, orange=un seul, vert=les deux
+        if(!cov.hasAccueil&&!cov.hasGDV)td.classList.add("c-danger");
+        else if(!cov.hasAccueil||!cov.hasGDV)td.classList.add("c-warn-a");
+        else td.classList.add("c-ok");
+      } else {
+        // AM : orange si pas d'accueil, vert sinon
+        if(!cov.hasAccueil)td.classList.add("c-warn-a");
+        else td.classList.add("c-ok");
+      }
       td.textContent=String(cov.onSite);
       const tips=[`Présents : ${cov.onSite}`+(cov.min>0?` (min. ${cov.min})`:"")];
       if(!cov.hasAccueil)tips.push("⚠ Accueil non couvert");
@@ -1213,9 +1253,20 @@ function buildMonthGrid(){
     covTr.appendChild(mk("td","td-cov-post",{style:{background:"#f9fafb"}}));
     workDays.forEach(({d,slots})=>{
       const covs=slots.map(slot=>teamCoverage(team,d,slot));
-      const lvl=covs.reduce((m,c)=>c.belowMin?Math.max(m,3):!c.hasAccueil?Math.max(m,2):!c.hasGDV?Math.max(m,1):Math.max(m,0),-1);
+      // Niveau : 3=rouge, 2=orange, 0=vert — PM tient compte de A et G
+      const lvl=covs.reduce((m,c,i)=>{
+        const slot=slots[i];
+        if(c.belowMin)return Math.max(m,3);
+        if(slot==="PM"){
+          if(!c.hasAccueil&&!c.hasGDV)return Math.max(m,3);
+          if(!c.hasAccueil||!c.hasGDV)return Math.max(m,2);
+        } else {
+          if(!c.hasAccueil)return Math.max(m,2);
+        }
+        return m;
+      },0);
       const td=document.createElement("td");td.className="td-cov";td.style.width="22px";td.style.minWidth="22px";td.style.fontSize="8px";
-      if(lvl===3)td.classList.add("c-danger");else if(lvl===2)td.classList.add("c-warn-a");else if(lvl===1)td.classList.add("c-warn-g");else td.classList.add("c-ok");
+      if(lvl>=3)td.classList.add("c-danger");else if(lvl===2)td.classList.add("c-warn-a");else td.classList.add("c-ok");
       const minOnSite=covs.reduce((m,c)=>Math.min(m,c.onSite),99);
       const minReq=getMinOnSite(team);
       td.textContent=String(minOnSite);
@@ -1365,6 +1416,7 @@ function buildActivityModal(){
   // Commit l'activité avec éventuellement countAs
   const commit=(code,countAs)=>{
     const comment=commentInp?commentInp.value.trim():"";
+    pushUndo(cells);
     cells.forEach(k=>{
       const entry={act:code,comment};
       if(customCodes.includes(code)&&countAs==="absent")entry.countAs="absent";
@@ -1380,7 +1432,7 @@ function buildActivityModal(){
     rebuildModal();
   };
 
-  const resetDefault=()=>{cells.forEach(k=>{delete S.planning[k];_deleteKey(k);});persist();S.modal=null;S.actCells=[];render();};
+  const resetDefault=()=>{pushUndo(cells);cells.forEach(k=>{delete S.planning[k];_deleteKey(k);});persist();S.modal=null;S.actCells=[];render();};
 
   let modalEl=null;
   function rebuildModal(){
@@ -1435,6 +1487,7 @@ function buildActivityModal(){
             else{
               pendingCode=null;
               const comment=commentInp?commentInp.value.trim():"";
+              pushUndo(cells);
               cells.forEach(k=>{S.planning[k]={act:code,comment};});
               persist();
               if(code==="CRC"){
@@ -1990,9 +2043,14 @@ function buildTplEditor(){
       const cov=tplSlotCov(team,w,off,slot);
       const td=document.createElement("td");
       td.style.cssText="width:32px;min-width:32px;height:18px;text-align:center;font-size:8px;font-weight:700;padding:0;border:0.5px solid #e9ecef"+(w===1&&off===1&&slot==="AM"?";border-left:2.5px solid #94a3b8":"");
-      if(!cov.hasAccueil){td.style.background="#fff7ed";td.style.color="#c2410c";td.textContent="Acc";td.title="Accueil non couvert";}
-      else if(!cov.hasGDV){td.style.background="#fefce8";td.style.color="#854d0e";td.textContent="GDV";td.title="GDV non assigné (PM)";}
-      else{td.style.background="#f0fdf4";td.style.color="#166534";td.textContent="✓";}
+      if(slot==="PM"){
+        if(!cov.hasAccueil&&!cov.hasGDV){td.style.background="#fee2e2";td.style.color="#b91c1c";td.textContent="✗";td.title="Accueil et GDV manquants";}
+        else if(!cov.hasAccueil||!cov.hasGDV){td.style.background="#fff7ed";td.style.color="#c2410c";td.textContent=!cov.hasAccueil?"Acc":"GDV";td.title=!cov.hasAccueil?"Accueil non couvert":"GDV non assigné";}
+        else{td.style.background="#f0fdf4";td.style.color="#166534";td.textContent="✓";}
+      } else {
+        if(!cov.hasAccueil){td.style.background="#fff7ed";td.style.color="#c2410c";td.textContent="Acc";td.title="Accueil non couvert";}
+        else{td.style.background="#f0fdf4";td.style.color="#166534";td.textContent="✓";}
+      }
       covTr.appendChild(td);
     });
     // 3 cellules vides pour les stats
@@ -2477,6 +2535,7 @@ function buildCRCDashboard(){
         S.actCells.forEach(k=>{delete S.planning[k];_deleteKey(k);});
         persist();S.modal=null;S.actCells=[];render();
       }},["↺ Supprimer le CRC"])]:[] ),
+      mk("button","btn",{onClick:()=>{S.modal="stats";render();}},["📊 Statistiques"]),
       mk("button","btn primary",{onClick:close},["Fermer"]),
     ]));
   }
@@ -2611,6 +2670,10 @@ function buildStatsModal(){
   // ─ Topbar
   const topbar=mk("div","stats-topbar",[]);
   topbar.appendChild(mk("h3",{},["Statistiques"]));
+  topbar.appendChild(mk("button","btn",{
+    style:{padding:"5px 10px",fontSize:"12px",marginRight:"auto"},
+    onClick:()=>{S.modal="crcDashboard";render();}
+  },["📅 Planning CRC"]));
   topbar.appendChild(mk("button","btn",{style:{padding:"5px 10px",fontSize:"12px"},onClick:close},["Fermer"]));
   panel.appendChild(topbar);
 
