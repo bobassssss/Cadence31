@@ -442,9 +442,6 @@ function persist(){
 async function _doPersist(){
   if(!_sb)return;
   try{
-    // Planning — upsert toutes les entrées
-    const rows=Object.entries(S.planning).map(([k,v])=>({key:k,act:v.act,comment:v.comment||"",count_as:v.countAs||null}));
-    if(rows.length>0)await _sb.from("planning").upsert(rows,{onConflict:"key"});
     // Members — avec sort_order pour préserver l'ordre
     await _sb.from("members").upsert(
       S.members.map((m,i)=>({id:m.id,name:m.name,team:m.team,post:m.post||"",email:m.email||null,sort_order:i})),
@@ -459,7 +456,18 @@ async function _doPersist(){
   }catch(e){console.warn("Supabase persist error:",e);}
 }
 
-// Suppression d'une entrée planning (appelé quand on efface une activité)
+// Persist individuel d'entrées planning (appelé après saisie manuelle)
+async function _persistPlanningEntries(entries){
+  if(!_sb)return;
+  try{
+    const rows=Object.entries(entries).map(([k,v])=>({
+      key:k,act:v.act,comment:v.comment||"",count_as:v.countAs||null
+    }));
+    if(rows.length>0)await _sb.from("planning").upsert(rows,{onConflict:"key"});
+  }catch(e){console.warn("Supabase planning persist error:",e);}
+}
+
+// Suppression d'une entrée planning
 async function _deleteKey(planKey){
   if(!_sb)return;
   try{await _sb.from("planning").delete().eq("key",planKey);}catch(e){}
@@ -1417,11 +1425,14 @@ function buildActivityModal(){
   const commit=(code,countAs)=>{
     const comment=commentInp?commentInp.value.trim():"";
     pushUndo(cells);
+    const saved={};
     cells.forEach(k=>{
       const entry={act:code,comment};
       if(customCodes.includes(code)&&countAs==="absent")entry.countAs="absent";
       S.planning[k]=entry;
+      saved[k]=entry;
     });
+    _persistPlanningEntries(saved);
     persist();S.modal=null;S.actCells=[];render();
   };
 
@@ -1488,7 +1499,9 @@ function buildActivityModal(){
               pendingCode=null;
               const comment=commentInp?commentInp.value.trim():"";
               pushUndo(cells);
-              cells.forEach(k=>{S.planning[k]={act:code,comment};});
+              const saved2={};
+              cells.forEach(k=>{S.planning[k]={act:code,comment};saved2[k]={act:code,comment};});
+              _persistPlanningEntries(saved2);
               persist();
               if(code==="CRC"){
                 S.actCells=[];S.modal="crcDashboard";render();
@@ -3105,6 +3118,7 @@ document.getElementById("lpw2").addEventListener("keydown",function(e){if(e.key=
 
 // Logout
 async function logout(){
+  clearTimeout(_persistTimer); // annuler tout persist en attente
   if(_sb)await _sb.auth.signOut();
   _auth={user:null,isAdmin:false,memberId:null};
   S.pendingEntries=[];
@@ -3591,39 +3605,37 @@ function buildImportMworkModal(){
           // Collecter les dates de la période importée
           const allDates=new Set(Object.keys(allEntries).map(k=>k.split("|")[1]));
           const memberIds=new Set(mapped.map(m=>m.ourMember.id));
+          const sortedDates=[...allDates].sort();
 
-          // 1. Upsert en premier — les données sont en sécurité dans Supabase
-          ev.target.textContent="Import…";
-          const rows=Object.entries(allEntries).map(([key,v])=>({key,act:v.act,comment:"",count_as:null}));
+          // 1. Écraser toute la période avec "." (présent) — filet de sécurité
+          // Si l'upsert des vraies données échoue à mi-chemin, on a au moins "présent"
+          ev.target.textContent="Préparation…";
+          const dotRows=[];
+          for(const mid of memberIds){
+            for(const date of sortedDates){
+              const dow=new Date(date+"T12:00:00").getDay();
+              if(dow===0)continue; // pas dimanche
+              const slots=dow===6?["AM"]:["AM","PM"]; // samedi = AM seulement
+              slots.forEach(slot=>{
+                dotRows.push({key:`${mid}|${date}|${slot}`,act:".",comment:"",count_as:null});
+              });
+            }
+          }
           const chunkSize=200;
+          for(let i=0;i<dotRows.length;i+=chunkSize){
+            await _sb.from("planning").upsert(dotRows.slice(i,i+chunkSize),{onConflict:"key"});
+          }
+
+          // 2. Écraser avec les vraies activités m-work
+          ev.target.textContent="Import…";
+          const rows=Object.entries(allEntries).map(([key,v])=>({key,act:v.act,comment:v.comment||"",count_as:null}));
           for(let i=0;i<rows.length;i+=chunkSize){
             await _sb.from("planning").upsert(rows.slice(i,i+chunkSize),{onConflict:"key"});
           }
-          // Mettre à jour le state local
-          Object.entries(allEntries).forEach(([key,v])=>{S.planning[key]=v;});
 
-          // 2. Supprimer uniquement les entrées obsolètes (présentes avant mais pas dans le nouvel import)
-          ev.target.textContent="Nettoyage…";
-          const sortedDates=[...allDates].sort();
-          const minDate=sortedDates[0];
-          const maxDate=sortedDates[sortedDates.length-1];
-          const newKeys=new Set(Object.keys(allEntries));
-          for(const mid of memberIds){
-            // Récupérer les clés existantes dans Supabase pour ce membre sur cette période
-            const{data:existing}=await _sb.from("planning")
-              .select("key")
-              .gte("key",`${mid}|${minDate}|`)
-              .lte("key",`${mid}|${maxDate}|~`);
-            if(!existing)continue;
-            const toDelete=existing.map(r=>r.key).filter(k=>!newKeys.has(k));
-            if(toDelete.length===0)continue;
-            // Supprimer par chunks
-            for(let i=0;i<toDelete.length;i+=500){
-              await _sb.from("planning").delete().in("key",toDelete.slice(i,i+500));
-            }
-            // Nettoyer le state local
-            toDelete.forEach(k=>{delete S.planning[k];});
-          }
+          // Mettre à jour le state local
+          dotRows.forEach(r=>{S.planning[r.key]={act:r.act,comment:""};});
+          Object.entries(allEntries).forEach(([key,v])=>{S.planning[key]=v;});
 
           S._mwState=null;S.modal=null;render();
         }catch(err){
