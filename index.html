@@ -2383,9 +2383,9 @@ function buildTeamRenameModal(){
     mk("div","modal",{},[
       hdr,
       mk("div","frow",{},[mk("label","lf",{},["Nom de l'équipe"]),inp]),
-      mk("div","frow",{style:{marginTop:"10px",alignItems:"center"}},[
-        mk("label","lf",{},["Espace collaboratif (open space)"]),
+      mk("div","",{style:{display:"flex",alignItems:"center",gap:"10px",marginTop:"10px"}},[
         chkOpenSpace,
+        mk("span","",{style:{fontSize:"13px",cursor:"pointer"},onClick:()=>{chkOpenSpace.checked=!chkOpenSpace.checked;updateBureaux();}},["Espace collaboratif (open space)"]),
       ]),
       postesRow,
       bureauxRow,
@@ -3558,22 +3558,24 @@ function buildImportMworkModal(){
           const allDates=new Set(Object.keys(allEntries).map(k=>k.split("|")[1]));
           const memberIds=new Set(mapped.map(m=>m.ourMember.id));
 
-          // Supprimer les entrées existantes pour ces membres sur la période importée
+          // Supprimer proprement les entrées existantes pour la période importée
+          // Une seule requête par membre grâce au filtre sur la plage de clés
           ev.target.textContent="Nettoyage…";
-          const minDate=[...allDates].sort()[0];
-          const maxDate=[...allDates].sort().pop();
+          const sortedDates=[...allDates].sort();
+          const minDate=sortedDates[0];
+          const maxDate=sortedDates[sortedDates.length-1];
           for(const mid of memberIds){
-            // Supprimer localement
+            // Filtre : clés entre "mid|minDate|AM" et "mid|maxDate|PM"
+            await _sb.from("planning")
+              .delete()
+              .gte("key",`${mid}|${minDate}|`)
+              .lte("key",`${mid}|${maxDate}|~`);
+            // Nettoyer aussi le state local
             Object.keys(S.planning).forEach(k=>{
-              const[km,kd]=k.split("|");
+              const[km,,]=k.split("|");
+              const kd=k.split("|")[1];
               if(km===mid&&kd>=minDate&&kd<=maxDate)delete S.planning[k];
             });
-            // Supprimer dans Supabase : une seule requête avec filtre plage
-            const keysForMid=[...allDates].flatMap(d=>[`${mid}|${d}|AM`,`${mid}|${d}|PM`]);
-            // Découper par chunks de 500 pour éviter les limites URL
-            for(let i=0;i<keysForMid.length;i+=500){
-              await _sb.from("planning").delete().in("key",keysForMid.slice(i,i+500));
-            }
           }
 
           // Upsert dans Supabase
