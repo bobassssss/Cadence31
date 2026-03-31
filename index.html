@@ -3302,28 +3302,47 @@ function _mwUserToEntries(mwUser,ourMemberId){
     addEntry(date,slot,act,true);
   });
 
-  // 3. Demandes d'absence (timeOffRequests) → CP
+  // 3. Demandes depuis timeOffRequests intégré dans getPlannerData (ancien système)
+  // Gardé pour compatibilité mais normalement vide
   (mwUser.timeOffRequests||[]).forEach(r=>{
-    // m-work peut avoir différentes structures selon la version
-    const debut=(r.startDate||r.start||r.start_date||r.from||r.planningDate||r.date||"").slice(0,10);
-    const fin=(r.endDate||r.end||r.end_date||r.to||r.planningDateEnd||debut).slice(0,10);
-    if(!debut)return;
-    const d=new Date(debut+"T12:00:00");
-    const f=new Date((fin||debut)+"T12:00:00");
-    if(isNaN(d.getTime()))return;
-    while(d<=f){
-      if(d.getDay()!==0){
-        const dateStr=fmtDate(d);
-        // Déterminer les slots : si dayPart précisé, sinon AM+PM
-        const dp=r.dayPart||r.day_part||r.period||"";
-        const slots=dp?[dp]:["AM","PM"];
-        slots.forEach(slot=>addEntry(dateStr,slot,"CP",true));
-      }
-      d.setDate(d.getDate()+1);
-    }
+    if(r.status==="DENIED")return;
+    _processTimeOffRequest(r, mwUser.id, addEntry);
   });
 
   return entries;
+}
+
+// Traite une demande time_off_request → entrées planning
+// APPROVED→CV, PENDING→CP, DENIED→ignoré
+function _processTimeOffRequest(r, mwUserId, addEntryFn){
+  if(r.status==="DENIED")return;
+  const act=r.status==="APPROVED"?"CV":"CP";
+  const debut=r.startDate||"";
+  const fin=r.endDate||debut;
+  if(!debut)return;
+  const d=new Date(debut+"T12:00:00");
+  const f=new Date(fin+"T12:00:00");
+  if(isNaN(d.getTime()))return;
+  while(d<=f){
+    if(d.getDay()!==0){ // pas dimanche
+      const dateStr=fmtDate(d);
+      const isFirst=dateStr===debut;
+      const isLast=dateStr===fin;
+      // Déterminer les slots selon startHalf/endHalf
+      let slots=["AM","PM"];
+      if(isFirst&&isLast){
+        // Même jour : startHalf → endHalf
+        if(r.startHalf===r.endHalf)slots=[r.startHalf||"AM"];
+        else slots=["AM","PM"]; // AM→PM = journée entière
+      } else if(isFirst){
+        slots=r.startHalf==="PM"?["PM"]:["AM","PM"];
+      } else if(isLast){
+        slots=r.endHalf==="AM"?["AM"]:["AM","PM"];
+      }
+      slots.forEach(slot=>addEntryFn(dateStr,slot,act,true));
+    }
+    d.setDate(d.getDate()+1);
+  }
 }
 
 function buildImportMworkModal(){
@@ -3448,6 +3467,8 @@ function buildImportMworkModal(){
           // Reconstruire mwData avec les users fusionnés
           baseData.json.planner.users=mergedUsers;
           mw.mwData=baseData;
+          // Stocker les demandes globales (retournées par le proxy)
+          mw.timeOffRequests=baseData.timeOffRequestList||[];
           mw.yearMode?mw.importLabel=`Année ${mw.year}`:mw.importLabel=`${months[0].slice(0,7)}`;
 
           // Mapping membres
@@ -3548,10 +3569,23 @@ function buildImportMworkModal(){
       mk("button","btn",{style:{background:"#16a34a",color:"#fff",flex:"1"},onClick:async(ev)=>{
         ev.target.disabled=true;ev.target.textContent="Import…";errEl.textContent="";
         try{
-          // Fusionner toutes les entrées
+          // Fusionner toutes les entrées (shifts + activités)
           const allEntries={};
           mapped.forEach(m=>{
             Object.assign(allEntries,_mwUserToEntries(m.mwUser,m.ourMember.id));
+          });
+
+          // Ajouter les demandes de congés globales (time_off_request)
+          // Construire un index mwUserId → ourMemberId
+          const mwToOur={};
+          mapped.forEach(m=>{if(m.include&&m.ourMember)mwToOur[m.mwId]=m.ourMember.id;});
+          (mw.timeOffRequests||[]).forEach(r=>{
+            const ourMemberId=mwToOur[r.userId];
+            if(!ourMemberId)return;
+            _processTimeOffRequest(r, r.userId, (date,slot,act,override)=>{
+              const key=`${ourMemberId}|${date}|${slot}`;
+              if(override||!allEntries[key])allEntries[key]={act,comment:r.collabComment||""};
+            });
           });
 
           // Collecter les dates de la période importée
