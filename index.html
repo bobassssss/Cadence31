@@ -440,7 +440,7 @@ function persist(){
   _persistTimer=setTimeout(_doPersist,800);
 }
 async function _doPersist(){
-  if(!_sb)return;
+  if(!_sb||!_auth.user)return; // ne rien écrire si déconnecté
   try{
     // Members — avec sort_order pour préserver l'ordre
     await _sb.from("members").upsert(
@@ -3602,41 +3602,14 @@ function buildImportMworkModal(){
             });
           });
 
-          // Collecter les dates de la période importée
-          const allDates=new Set(Object.keys(allEntries).map(k=>k.split("|")[1]));
-          const memberIds=new Set(mapped.map(m=>m.ourMember.id));
-          const sortedDates=[...allDates].sort();
-
-          // 1. Écraser toute la période avec "." (présent) — filet de sécurité
-          // Si l'upsert des vraies données échoue à mi-chemin, on a au moins "présent"
-          ev.target.textContent="Préparation…";
-          const dotRows=[];
-          for(const mid of memberIds){
-            for(const date of sortedDates){
-              const dow=new Date(date+"T12:00:00").getDay();
-              if(dow===0)continue; // pas dimanche
-              const slots=dow===6?["AM"]:["AM","PM"]; // samedi = AM seulement
-              slots.forEach(slot=>{
-                dotRows.push({key:`${mid}|${date}|${slot}`,act:".",comment:"",count_as:null});
-              });
-            }
-          }
-          const chunkSize=200;
-          for(let i=0;i<dotRows.length;i+=chunkSize){
-            await _sb.from("planning").upsert(dotRows.slice(i,i+chunkSize),{onConflict:"key"});
-          }
-
-          // 2. Écraser avec les vraies activités m-work
+          // Import simple — upsert uniquement, sans effacement
           ev.target.textContent="Import…";
           const rows=Object.entries(allEntries).map(([key,v])=>({key,act:v.act,comment:v.comment||"",count_as:null}));
+          const chunkSize=200;
           for(let i=0;i<rows.length;i+=chunkSize){
             await _sb.from("planning").upsert(rows.slice(i,i+chunkSize),{onConflict:"key"});
           }
-
-          // Mettre à jour le state local
-          dotRows.forEach(r=>{S.planning[r.key]={act:r.act,comment:""};});
           Object.entries(allEntries).forEach(([key,v])=>{S.planning[key]=v;});
-
           S._mwState=null;S.modal=null;render();
         }catch(err){
           errEl.textContent="Erreur import : "+(err.message||err);
