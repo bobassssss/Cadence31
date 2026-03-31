@@ -3558,27 +3558,7 @@ function buildImportMworkModal(){
           const allDates=new Set(Object.keys(allEntries).map(k=>k.split("|")[1]));
           const memberIds=new Set(mapped.map(m=>m.ourMember.id));
 
-          // Supprimer proprement les entrées existantes pour la période importée
-          // Une seule requête par membre grâce au filtre sur la plage de clés
-          ev.target.textContent="Nettoyage…";
-          const sortedDates=[...allDates].sort();
-          const minDate=sortedDates[0];
-          const maxDate=sortedDates[sortedDates.length-1];
-          for(const mid of memberIds){
-            // Filtre : clés entre "mid|minDate|AM" et "mid|maxDate|PM"
-            await _sb.from("planning")
-              .delete()
-              .gte("key",`${mid}|${minDate}|`)
-              .lte("key",`${mid}|${maxDate}|~`);
-            // Nettoyer aussi le state local
-            Object.keys(S.planning).forEach(k=>{
-              const[km,,]=k.split("|");
-              const kd=k.split("|")[1];
-              if(km===mid&&kd>=minDate&&kd<=maxDate)delete S.planning[k];
-            });
-          }
-
-          // Upsert dans Supabase
+          // 1. Upsert en premier — les données sont en sécurité dans Supabase
           ev.target.textContent="Import…";
           const rows=Object.entries(allEntries).map(([key,v])=>({key,act:v.act,comment:"",count_as:null}));
           const chunkSize=200;
@@ -3587,6 +3567,30 @@ function buildImportMworkModal(){
           }
           // Mettre à jour le state local
           Object.entries(allEntries).forEach(([key,v])=>{S.planning[key]=v;});
+
+          // 2. Supprimer uniquement les entrées obsolètes (présentes avant mais pas dans le nouvel import)
+          ev.target.textContent="Nettoyage…";
+          const sortedDates=[...allDates].sort();
+          const minDate=sortedDates[0];
+          const maxDate=sortedDates[sortedDates.length-1];
+          const newKeys=new Set(Object.keys(allEntries));
+          for(const mid of memberIds){
+            // Récupérer les clés existantes dans Supabase pour ce membre sur cette période
+            const{data:existing}=await _sb.from("planning")
+              .select("key")
+              .gte("key",`${mid}|${minDate}|`)
+              .lte("key",`${mid}|${maxDate}|~`);
+            if(!existing)continue;
+            const toDelete=existing.map(r=>r.key).filter(k=>!newKeys.has(k));
+            if(toDelete.length===0)continue;
+            // Supprimer par chunks
+            for(let i=0;i<toDelete.length;i+=500){
+              await _sb.from("planning").delete().in("key",toDelete.slice(i,i+500));
+            }
+            // Nettoyer le state local
+            toDelete.forEach(k=>{delete S.planning[k];});
+          }
+
           S._mwState=null;S.modal=null;render();
         }catch(err){
           errEl.textContent="Erreur import : "+(err.message||err);
