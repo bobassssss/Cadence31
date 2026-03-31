@@ -2320,32 +2320,79 @@ function buildNavPickerModal(){
 function buildTeamRenameModal(){
   const oldName=S.editTeam;
   const close=()=>{S.modal=null;S.editTeam=null;render();};
+  const ts=S.settings.teamSettings?.[oldName]||{};
+
+  // Champs
   const inp=mk("input","",{type:"text"});inp.value=oldName;
+
+  // Espace collaboratif (open space)
+  const chkOpenSpace=mk("input","",{type:"checkbox"});
+  chkOpenSpace.checked=ts.openSpace||false;
+
+  // Nombre de postes dans l'espace collaboratif
+  const inpPostes=mk("input","",{type:"number",style:{width:"70px"},min:"0"});
+  inpPostes.value=ts.postesTotal!=null?ts.postesTotal:"";
+  inpPostes.placeholder="—";
+
+  // Nombre de bureaux en plus de l'espace collaboratif
+  const inpBureaux=mk("input","",{type:"number",style:{width:"70px"},min:"0"});
+  inpBureaux.value=ts.bureauxFixes!=null?ts.bureauxFixes:"";
+  inpBureaux.placeholder="—";
+
+  // Afficher/masquer les champs bureaux selon open space
+  const bureauxRow=mk("div","frow",{style:{marginTop:"6px"}},[
+    mk("label","lf",{},["Bureaux supplémentaires (hors open space)"]),inpBureaux
+  ]);
+  const postesRow=mk("div","frow",{style:{marginTop:"6px"}},[
+    mk("label","lf",{},["Postes dans l'espace collaboratif"]),inpPostes
+  ]);
+  const updateBureaux=()=>{
+    postesRow.style.display=chkOpenSpace.checked?"flex":"none";
+    bureauxRow.style.display="flex";
+  };
+  chkOpenSpace.addEventListener("change",updateBureaux);
+  updateBureaux();
+
   const doSave=()=>{
     const newName=inp.value.trim();
-    if(!newName||newName===oldName){close();return;}
-    // Mettre à jour les membres
-    S.members=S.members.map(m=>m.team===oldName?{...m,team:newName}:m);
-    // Mettre à jour teamSettings
-    if(S.settings.teamSettings&&S.settings.teamSettings[oldName]){
-      S.settings.teamSettings[newName]=S.settings.teamSettings[oldName];
+    if(!newName){close();return;}
+    if(!S.settings.teamSettings)S.settings.teamSettings={};
+    const existing=S.settings.teamSettings[oldName]||{};
+    S.settings.teamSettings[newName]={
+      ...existing,
+      openSpace:chkOpenSpace.checked,
+      postesTotal:inpPostes.value!==""?parseInt(inpPostes.value):null,
+      bureauxFixes:inpBureaux.value!==""?parseInt(inpBureaux.value):null,
+    };
+    if(newName!==oldName){
       delete S.settings.teamSettings[oldName];
+      S.members=S.members.map(m=>m.team===oldName?{...m,team:newName}:m);
+      Object.entries(S.planning).forEach(([k,v])=>{
+        if(v.dispatchedTo===oldName)S.planning[k]={...v,dispatchedTo:newName};
+      });
+      if(S.activeTeam===oldName)S.activeTeam=newName;
     }
-    // Mettre à jour les dispatchedTo dans le planning
-    Object.entries(S.planning).forEach(([k,v])=>{
-      if(v.dispatchedTo===oldName)S.planning[k]={...v,dispatchedTo:newName};
-    });
-    if(S.activeTeam===oldName)S.activeTeam=newName;
     persist();close();
   };
+
   const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px"}},[
-    mk("h3",{},["Renommer l'équipe"]),mk("button","mclose",{onClick:close},["×"]),
+    mk("h3",{},["Paramètres de l'équipe"]),mk("button","mclose",{onClick:close},["×"]),
   ]);
+
   return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[
     mk("div","modal",{},[
       hdr,
-      mk("div","frow",{},[mk("label","lf",{},["Nouveau nom de l'équipe"]),inp]),
-      mk("div","mfooter",{},[mk("button","btn",{onClick:close},["Annuler"]),mk("button","btn primary",{onClick:doSave},["Renommer"])]),
+      mk("div","frow",{},[mk("label","lf",{},["Nom de l'équipe"]),inp]),
+      mk("div","frow",{style:{marginTop:"10px",alignItems:"center"}},[
+        mk("label","lf",{},["Espace collaboratif (open space)"]),
+        chkOpenSpace,
+      ]),
+      postesRow,
+      bureauxRow,
+      mk("div","mfooter",{style:{marginTop:"14px"}},[
+        mk("button","btn",{onClick:close},["Annuler"]),
+        mk("button","btn primary",{onClick:doSave},["Enregistrer"]),
+      ]),
     ]),
   ]);
 }
@@ -3130,17 +3177,32 @@ const MW_PROXY_URL="https://cadence31.vercel.app/api/mwork-proxy";
 function _normName(s){return(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();}
 // Suggère le membre de notre app le plus proche du nom m-work
 function _suggestMember(mwFirst,mwLast){
-  const full=_normName(mwFirst+" "+mwLast);
+  const nFirst=_normName(mwFirst);
+  const nLast=_normName(mwLast);
+  const full1=nFirst+" "+nLast; // prénom nom
+  const full2=nLast+" "+nFirst; // nom prénom (m-work parfois inversé)
   let best=null,bestScore=0;
   S.members.forEach(m=>{
     const mn=_normName(m.name);
+    const parts=mn.split(" ");
     let score=0;
-    if(mn===full)score=3;
-    else if(mn.includes(_normName(mwLast))||_normName(mwLast).includes(mn.split(" ").pop()||""))score=2;
-    else if(mn.includes(_normName(mwFirst)))score=1;
+    // Correspondance exacte dans les deux sens
+    if(mn===full1||mn===full2)score=10;
+    // Prénom ET nom présents dans notre nom (ordre quelconque)
+    else if(nFirst.length>1&&nLast.length>1&&mn.includes(nFirst)&&mn.includes(nLast))score=8;
+    // Nom de famille seul (souvent suffisant et unique)
+    else if(nLast.length>2&&mn.includes(nLast))score=5;
+    // Prénom seul
+    else if(nFirst.length>2&&mn.includes(nFirst))score=3;
+    // Mots en commun (pour noms composés)
+    else{
+      const mwParts=[nFirst,...nLast.split("-"),...nFirst.split("-")];
+      const common=mwParts.filter(w=>w.length>2&&parts.some(p=>p===w||p.startsWith(w)||w.startsWith(p))).length;
+      if(common>0)score=common;
+    }
     if(score>bestScore){bestScore=score;best=m;}
   });
-  return bestScore>0?best:null;
+  return bestScore>=3?best:null;
 }
 
 // Détermine le créneau (AM/PM) depuis startDate UTC
@@ -3496,14 +3558,21 @@ function buildImportMworkModal(){
           const allDates=new Set(Object.keys(allEntries).map(k=>k.split("|")[1]));
           const memberIds=new Set(mapped.map(m=>m.ourMember.id));
 
-          // Supprimer les entrées existantes pour ces membres + ces dates dans Supabase
-          // (sauf temps partiels qui sont dans settings, et jours fériés qui sont calculés)
+          // Supprimer les entrées existantes pour ces membres sur la période importée
           ev.target.textContent="Nettoyage…";
+          const minDate=[...allDates].sort()[0];
+          const maxDate=[...allDates].sort().pop();
           for(const mid of memberIds){
-            for(const date of allDates){
-              const keysToDelete=[`${mid}|${date}|AM`,`${mid}|${date}|PM`];
-              keysToDelete.forEach(k=>{delete S.planning[k];});
-              await _sb.from("planning").delete().in("key",keysToDelete);
+            // Supprimer localement
+            Object.keys(S.planning).forEach(k=>{
+              const[km,kd]=k.split("|");
+              if(km===mid&&kd>=minDate&&kd<=maxDate)delete S.planning[k];
+            });
+            // Supprimer dans Supabase : une seule requête avec filtre plage
+            const keysForMid=[...allDates].flatMap(d=>[`${mid}|${d}|AM`,`${mid}|${d}|PM`]);
+            // Découper par chunks de 500 pour éviter les limites URL
+            for(let i=0;i<keysForMid.length;i+=500){
+              await _sb.from("planning").delete().in("key",keysForMid.slice(i,i+500));
             }
           }
 
