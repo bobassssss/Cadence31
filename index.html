@@ -225,6 +225,31 @@ input:focus,select:focus{border-color:#93c5fd;background:#fff}
 <div id="app" style="display:none"></div>
 <script>
 // ─── ACTIVITÉS DE BASE (hors lieux personnalisés) ─────────────────────────────
+// ─── POSTES ───────────────────────────────────────────────────────────────────
+const POSTES=[
+  {label:"Directeur de groupe d'agence", abbr:"DDGA"},
+  {label:"Directeur d'agence",           abbr:"DA"},
+  {label:"Chargé patrimonial",           abbr:"Patri"},
+  {label:"Chargé de clientèle",          abbr:"Char"},
+  {label:"Conseiller de clientèle",      abbr:"Cons"},
+  {label:"Conseiller d'accueil",         abbr:"Acc"},
+  {label:"Alternant",                    abbr:"Alt"},
+  {label:"Assur Part",                   abbr:"AssP"},
+  {label:"Directeur Pôle Pro",           abbr:"DAP"},
+  {label:"Adjoint Pôle Pro",             abbr:"AdjP"},
+  {label:"Chargé Pro",                   abbr:"ChaP"},
+  {label:"Chargé Patri pro",             abbr:"PatP"},
+  {label:"Conseiller pro",               abbr:"CoP"},
+  {label:"Conseiller d'accueil pro",     abbr:"AccP"},
+  {label:"Assur pro",                    abbr:"AssP"},
+];
+// Retrouve l'abréviation depuis le label ou l'abréviation stockée
+function posteAbbr(val){
+  if(!val)return"";
+  const found=POSTES.find(p=>p.label===val||p.abbr===val);
+  return found?found.abbr:val;
+}
+
 const BASE_ACTS={
   ".":  {l:"Présent sur site",      c:"#166534",bg:"#dcfce7"},
   "S":  {l:"Soutien accueil",       c:"#0284c7",bg:"#bae6fd"},
@@ -1008,18 +1033,38 @@ document.addEventListener("mouseup",()=>{
 });
 function makeTdPost(member){
   const td=document.createElement("td");td.className="td-post";
-  if(!isAdmin()){
-    // Non-admin : affichage seul, pas d'édition
-    const span=document.createElement("span");
-    span.style.cssText="font-size:10px;color:#374151;padding:2px;display:block;text-align:center";
-    span.textContent=member.post||"";td.appendChild(span);return td;
-  }
-  const inp=mk("input","",{type:"text"});
-  inp.value=member.post||"";inp.placeholder="Poste";inp.setAttribute("maxlength","18");
-  inp.addEventListener("change",()=>{S.members=S.members.map(x=>x.id===member.id?{...x,post:inp.value.trim()}:x);persist();});
-  inp.addEventListener("click",e=>e.stopPropagation());
-  inp.addEventListener("touchstart",e=>e.stopPropagation(),{passive:true});
-  td.appendChild(inp);return td;
+  const abbr=posteAbbr(member.post||"");
+  const span=document.createElement("span");
+  span.style.cssText="font-size:10px;color:#374151;padding:2px;display:block;text-align:center";
+  span.textContent=abbr;
+  td.appendChild(span);
+  if(!isAdmin())return td;
+  // Admin : clic sur la cellule ouvre un select inline
+  td.title="Cliquer pour changer le poste";
+  td.style.cursor="pointer";
+  td.addEventListener("click",e=>{
+    e.stopPropagation();
+    if(td.querySelector("select"))return;
+    span.style.display="none";
+    const sel=document.createElement("select");
+    sel.style.cssText="width:100%;font-size:10px;border:none;outline:none;background:#eff6ff;border-radius:3px";
+    sel.appendChild(Object.assign(document.createElement("option"),{value:"",textContent:"—"}));
+    POSTES.forEach(p=>{
+      const opt=document.createElement("option");
+      opt.value=p.abbr;opt.textContent=p.abbr;
+      if(p.abbr===abbr)opt.selected=true;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener("change",()=>{
+      const newPost=sel.value;
+      S.members=S.members.map(x=>x.id===member.id?{...x,post:newPost}:x);
+      persist();render();
+    });
+    sel.addEventListener("blur",()=>{span.style.display="";sel.remove();});
+    td.appendChild(sel);
+    sel.focus();
+  });
+  return td;
 }
 
 // ─── COVERAGE ROW ────────────────────────────────────────────────────────────
@@ -1576,10 +1621,17 @@ function buildMemberModal(){
   teamSel.addEventListener("change",()=>{newTeamInp.style.display=teamSel.value==="__new__"?"block":"none";});
   inputs.team=teamSel;inputs.newTeamInp=newTeamInp;
   bodyEls.push(mk("div","frow",{},[mk("label","lf",{},["Équipe"]),teamSel,newTeamInp]));
-  // Poste
-  const postInp=mk("input","",{type:"text"});postInp.value=m?m.post:"";
-  inputs.post=postInp;
-  bodyEls.push(mk("div","frow",{},[mk("label","lf",{},["Poste"]),postInp]));
+  // Poste — liste déroulante figée
+  const postSel=mk("select","",{style:{width:"100%",padding:"6px 8px",fontSize:"13px",border:"0.5px solid #d1d5db",borderRadius:"8px",outline:"none",background:"#fafafa"}});
+  postSel.appendChild(mk("option","",{value:""},["— Choisir un poste —"]));
+  const currentAbbr=m?posteAbbr(m.post||""):"";
+  POSTES.forEach(p=>{
+    const opt=mk("option","",{value:p.abbr},[p.label]);
+    if(p.abbr===currentAbbr||(m&&m.post===p.label))opt.selected=true;
+    postSel.appendChild(opt);
+  });
+  inputs.post=postSel;
+  bodyEls.push(mk("div","frow",{},[mk("label","lf",{},["Poste"]),postSel]));
   // Email — lien avec le compte Supabase
   const emailInp=mk("input","",{type:"email",placeholder:"prenom.nom@exemple.com"});
   emailInp.value=m?m.email||"":"";
@@ -1595,7 +1647,7 @@ function buildMemberModal(){
     const nm=inputs.name.value.trim();if(!nm)return;
     const rawTeam=inputs.team.value;
     const teamVal=rawTeam==="__new__"?(inputs.newTeamInp.value.trim()||"Nouvelle équipe"):rawTeam;
-    const postVal=inputs.post.value.trim();
+    const postVal=inputs.post.value||"";
     const emailVal=inputs.email.value.trim().toLowerCase()||"";
     const oldEmail=m?.email||"";
     if(m)S.members=S.members.map(x=>x.id===m.id?{...x,name:nm,team:teamVal,post:postVal||x.post,email:emailVal}:x);
