@@ -3895,88 +3895,83 @@ function buildRequestsAdminModal(){
   const title=mk("h3","",{style:{margin:"0 0 12px"}},
     [`✉ Demandes${totalPending>0?` (${totalPending} en attente)`:""}`]);
 
-  // ── Section congés
-  const secConges=mk("div","",{style:{marginBottom:"16px"}});
-  if(pendingConges>0||rows.length>0){
-    secConges.appendChild(mk("p","grp-label",{style:{marginBottom:"8px"}},["🏖 Congés / Absences"]));
-    rows.forEach(r=>secConges.appendChild(r));
-  }
-
-  // ── Section bureaux
-  const sortedDesk=[...S.deskBookings].sort((a,b)=>{
-    if(a.status==="pending"&&b.status!=="pending")return -1;
-    if(b.status==="pending"&&a.status!=="pending")return 1;
-    return new Date(b.created_at)-new Date(a.created_at);
+  // Construire les cartes bureaux avec created_at pour tri chronologique
+  const deskCards=S.deskBookings.map(bk=>{
+    const isPendingB=bk.status==="pending";
+    const d=new Date(bk.date+"T12:00:00");
+    const dayLbl=`${DAYS_FULL[d.getDay()]} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
+    const slotLbl=bk.slot==="AM"?"Matin":"Après-midi";
+    const dateLabel=`${dayLbl} — ${slotLbl}`;
+    const statusEl=mk("span","",{style:{
+      display:"inline-block",padding:"1px 7px",borderRadius:"10px",fontSize:"11px",fontWeight:"bold",
+      background:isPendingB?"#fef3c7":bk.status==="approved"?"#dcfce7":"#fee2e2",
+      color:isPendingB?"#92400e":bk.status==="approved"?"#166534":"#b91c1c",
+    }},[isPendingB?"En attente":bk.status==="approved"?"Accepté ✓":"Refusé ✗"]);
+    const btnsB=isPendingB?mk("div","",{style:{display:"flex",gap:"6px",marginTop:"6px"}},[
+      mk("button","btn",{
+        style:{flex:"1",background:"#16a34a",color:"#fff",padding:"5px"},
+        onClick:async(ev)=>{
+          ev.target.disabled=true;ev.target.textContent="…";
+          await _sb.from("desk_bookings").update({status:"approved"}).eq("id",bk.id);
+          S.deskBookings=S.deskBookings.map(x=>x.id===bk.id?{...x,status:"approved"}:x);
+          // Commentaire dans teamEvents (ligne commentaires libres de l'équipe)
+          const note=`🏢 ${bk.visitor_email}${bk.comment?" – "+bk.comment:""}`;
+          const evKey=`${bk.team}|${bk.date}`;
+          const existing=S.teamEvents[evKey]||"";
+          if(!existing.includes(bk.visitor_email)){
+            S.teamEvents[evKey]=existing?`${existing} · ${note}`:note;
+            persist();
+          }
+          const a=document.createElement("a");
+          a.href=`mailto:${bk.visitor_email}?subject=${encodeURIComponent("[Planning] Bureau réservé ✓")}&body=${encodeURIComponent(`Bonjour,\n\nVotre réservation a été acceptée :\n• ${bk.team} · ${dateLabel}\n\nCordialement`)}`;
+          a.style.display="none";document.body.appendChild(a);a.click();document.body.removeChild(a);
+          render();
+        }
+      },["✓ Accepter"]),
+      mk("button","btn danger",{
+        style:{flex:"1",padding:"5px"},
+        onClick:async(ev)=>{
+          ev.target.disabled=true;ev.target.textContent="…";
+          await _sb.from("desk_bookings").update({status:"rejected"}).eq("id",bk.id);
+          S.deskBookings=S.deskBookings.map(x=>x.id===bk.id?{...x,status:"rejected"}:x);
+          const a=document.createElement("a");
+          a.href=`mailto:${bk.visitor_email}?subject=${encodeURIComponent("[Planning] Bureau non disponible ✗")}&body=${encodeURIComponent(`Bonjour,\n\nVotre demande n'a pas pu être acceptée :\n• ${bk.team} · ${dateLabel}\n\nCordialement`)}`;
+          a.style.display="none";document.body.appendChild(a);a.click();document.body.removeChild(a);
+          render();
+        }
+      },["✗ Refuser"]),
+    ]):null;
+    const card=mk("div","",{style:{
+      border:"1px solid "+(isPendingB?"#fcd34d":"#e5e7eb"),borderRadius:"8px",
+      padding:"10px 12px",marginBottom:"8px",background:isPendingB?"#fffbeb":"#fafafa",
+    }},[
+      mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},[
+        mk("strong","",{style:{fontSize:"13px"}},[`🏢 ${bk.team}`]),statusEl,
+      ]),
+      mk("p","",{style:{margin:"3px 0 0",fontSize:"12px",color:"#374151"}},[dateLabel]),
+      mk("p","",{style:{margin:"2px 0 0",fontSize:"12px",color:"#6b7280"}},[`✉ ${bk.visitor_email}`]),
+      bk.comment?mk("p","",{style:{margin:"2px 0 0",fontSize:"11px",color:"#9ca3af"}},[bk.comment]):null,
+      ...(btnsB?[btnsB]:[]),
+    ].filter(Boolean));
+    return{card,created_at:bk.created_at,isPending:isPendingB};
   });
-  const secBureaux=mk("div","",{});
-  if(sortedDesk.length>0){
-    secBureaux.appendChild(mk("p","grp-label",{style:{marginBottom:"8px"}},["🏢 Réservations bureaux"]));
-    sortedDesk.forEach(bk=>{
-      const isPendingB=bk.status==="pending";
-      const d=new Date(bk.date+"T12:00:00");
-      const dayLbl=`${DAYS_FULL[d.getDay()]} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
-      const slotLbl=bk.slot==="AM"?"Matin":"Après-midi";
-      const dateLabel=`${dayLbl} — ${slotLbl}`;
-      const statusEl=mk("span","",{style:{
-        display:"inline-block",padding:"1px 7px",borderRadius:"10px",fontSize:"11px",fontWeight:"bold",
-        background:isPendingB?"#fef3c7":bk.status==="approved"?"#dcfce7":"#fee2e2",
-        color:isPendingB?"#92400e":bk.status==="approved"?"#166534":"#b91c1c",
-      }},[isPendingB?"En attente":bk.status==="approved"?"Accepté ✓":"Refusé ✗"]);
-      const btnsB=isPendingB?mk("div","",{style:{display:"flex",gap:"6px",marginTop:"6px"}},[
-        mk("button","btn",{
-          style:{flex:"1",background:"#16a34a",color:"#fff",padding:"5px"},
-          onClick:async(ev)=>{
-            ev.target.disabled=true;ev.target.textContent="…";
-            await _sb.from("desk_bookings").update({status:"approved"}).eq("id",bk.id);
-            S.deskBookings=S.deskBookings.map(x=>x.id===bk.id?{...x,status:"approved"}:x);
-            // Commentaire dans le planning
-            const note=`🏢 ${bk.visitor_email}${bk.comment?" – "+bk.comment:""}`;
-            const toUp=[];
-            S.members.filter(m=>m.team===bk.team).forEach(m=>{
-              const key=`${m.id}|${bk.date}|${bk.slot}`;
-              const ex=S.planning[key];
-              if(ex&&!( ex.comment||"").includes(bk.visitor_email)){
-                const nc=(ex.comment||"")?`${ex.comment} · ${note}`:note;
-                S.planning[key]={...ex,comment:nc};
-                toUp.push({key,act:ex.act,comment:nc,count_as:ex.countAs||null});
-              }
-            });
-            if(toUp.length)await _sb.from("planning").upsert(toUp,{onConflict:"key"});
-            const a=document.createElement("a");
-            a.href=`mailto:${bk.visitor_email}?subject=${encodeURIComponent("[Planning] Bureau réservé ✓")}&body=${encodeURIComponent(`Bonjour,\n\nVotre réservation a été acceptée :\n• ${bk.team} · ${dateLabel}\n\nCordialement`)}`;
-            a.style.display="none";document.body.appendChild(a);a.click();document.body.removeChild(a);
-            render();
-          }
-        },["✓ Accepter"]),
-        mk("button","btn danger",{
-          style:{flex:"1",padding:"5px"},
-          onClick:async(ev)=>{
-            ev.target.disabled=true;ev.target.textContent="…";
-            await _sb.from("desk_bookings").update({status:"rejected"}).eq("id",bk.id);
-            S.deskBookings=S.deskBookings.map(x=>x.id===bk.id?{...x,status:"rejected"}:x);
-            const a=document.createElement("a");
-            a.href=`mailto:${bk.visitor_email}?subject=${encodeURIComponent("[Planning] Bureau non disponible ✗")}&body=${encodeURIComponent(`Bonjour,\n\nVotre demande n'a pas pu être acceptée :\n• ${bk.team} · ${dateLabel}\n\nCordialement`)}`;
-            a.style.display="none";document.body.appendChild(a);a.click();document.body.removeChild(a);
-            render();
-          }
-        },["✗ Refuser"]),
-      ]):null;
-      secBureaux.appendChild(mk("div","",{style:{
-        border:"1px solid "+(isPendingB?"#fcd34d":"#e5e7eb"),borderRadius:"8px",
-        padding:"10px 12px",marginBottom:"8px",background:isPendingB?"#fffbeb":"#fafafa",
-      }},[
-        mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},[
-          mk("strong","",{style:{fontSize:"13px"}},[bk.team]),statusEl,
-        ]),
-        mk("p","",{style:{margin:"3px 0 0",fontSize:"12px",color:"#374151"}},[dateLabel]),
-        mk("p","",{style:{margin:"2px 0 0",fontSize:"12px",color:"#6b7280"}},[`✉ ${bk.visitor_email}`]),
-        bk.comment?mk("p","",{style:{margin:"2px 0 0",fontSize:"11px",color:"#9ca3af"}},[bk.comment]):null,
-        ...(btnsB?[btnsB]:[]),
-      ].filter(Boolean)));
-    });
-  }
 
-  const body=mk("div","",{style:{maxHeight:"65vh",overflowY:"auto"}},[secConges,secBureaux]);
+  // Fusionner congés + bureaux, trier chronologique (pending en premier, puis date desc)
+  const congesCards=rows.map(card=>({card,created_at:null,isPending:card.style?.background==="#fffbeb"}));
+  const allCards=[
+    ...sorted.map((req,i)=>({card:rows[i],created_at:req.created_at,isPending:req.status==="pending"})),
+    ...deskCards,
+  ].sort((a,b)=>{
+    if(a.isPending&&!b.isPending)return -1;
+    if(!a.isPending&&b.isPending)return 1;
+    return new Date(b.created_at||0)-new Date(a.created_at||0);
+  });
+
+  const bodyContent=allCards.length===0
+    ?[mk("p","",{style:{color:"#6b7280",fontStyle:"italic",padding:"12px 0"}},["Aucune demande."])]
+    :allCards.map(x=>x.card);
+
+  const body=mk("div","",{style:{maxHeight:"65vh",overflowY:"auto"}},bodyContent);
   const footer=mk("div","mfooter",[mk("button","btn",{onClick:close},["Fermer"])]);
   const box=mk("div","modal",{style:{maxWidth:"420px",width:"95%"}},[title,body,footer]);
   return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
