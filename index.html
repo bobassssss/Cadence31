@@ -2362,12 +2362,17 @@ function buildNavPickerModal(){
       mondays.forEach(mon=>{
         const tue=addDays(mon,1),sat=addDays(mon,5);
         const wn=isoWeek(mon);
-        const isActive=fmtDate(mon)===fmtDate(S.weekStart);
+        const activeWeek=S._navPickerTarget==="visitor"?S._visitorWeek:S.weekStart;
+        const isActive=fmtDate(mon)===fmtDate(activeWeek);
         const btn=mk("div","",{
           style:{display:"flex",alignItems:"center",gap:"8px",padding:"6px 9px",borderRadius:"6px",cursor:"pointer",
                  background:isActive?"#1e3a5f":"#f8fafc",color:isActive?"#fff":"#374151",
                  border:"0.5px solid "+(isActive?"transparent":"#e2e8f0"),fontSize:"12px"},
-          onClick:()=>{S.weekStart=mon;S.modal=null;render();}
+          onClick:()=>{
+            if(S._navPickerTarget==="visitor"){S._visitorWeek=mon;}
+            else{S.weekStart=mon;}
+            S._navPickerTarget=null;S.modal=null;render();
+          }
         });
         btn.innerHTML=`<span style="font-size:10px;color:${isActive?"rgba(255,255,255,.6)":"#94a3b8"};min-width:24px">S${wn}</span>`+
           `<span>${DAYS_FULL[2]} ${tue.getDate()} – ${DAYS_FULL[6]} ${sat.getDate()} ${MONTHS_SHORT[sat.getMonth()]}</span>`;
@@ -4040,15 +4045,20 @@ function buildVisitorView(){
   app.innerHTML="";
 
   // Topbar visiteur
-  const lbl=`Semaine du ${addDays(weekStart,1).getDate()} ${MONTHS_SHORT[addDays(weekStart,1).getMonth()]}`;
+  const tue=addDays(weekStart,1),sat=addDays(weekStart,5);
+  const lbl=`${tue.getDate()} ${MONTHS_SHORT[tue.getMonth()]} – ${sat.getDate()} ${MONTHS_SHORT[sat.getMonth()]}`;
   const topbar=mk("div","topbar",{},[
     mk("div","topbar-row",{},[
       mk("span","logo",{},["Bureaux disponibles"]),
       mk("div","nav-week",{},[
-        mk("button","btn",{onClick:()=>{S._visitorWeek=addDays(weekStart,-7);buildVisitorView();}},["←"]),
-        mk("span","wlabel",{},[lbl]),
-        mk("button","btn",{onClick:()=>{S._visitorWeek=addDays(weekStart,7);buildVisitorView();}},["→"]),
-        mk("button","btn today",{onClick:()=>{S._visitorWeek=getMonday(today);buildVisitorView();}},["Auj."]),
+        mk("button","btn",{onClick:()=>{S._visitorWeek=addDays(weekStart,-7);render();}},["←"]),
+        mk("span","wlabel",{style:{cursor:"pointer"},onClick:()=>{
+          // navPicker : on redirige le résultat vers _visitorWeek
+          S._navPickerTarget="visitor";
+          S.modal="navPicker";render();
+        }},[lbl]),
+        mk("button","btn",{onClick:()=>{S._visitorWeek=addDays(weekStart,7);render();}},["→"]),
+        mk("button","btn today",{onClick:()=>{S._visitorWeek=getMonday(today);render();}},["Auj."]),
       ]),
       mk("button","btn",{style:{marginLeft:"auto",padding:"6px 9px",fontSize:"11px"},onClick:logout},["⎋ Quitter"]),
     ]),
@@ -4061,11 +4071,10 @@ function buildVisitorView(){
 
   teams.forEach(team=>{
     const ts=S.settings.teamSettings?.[team]||{};
-    if(ts.bureauxFixes==null)return; // équipe sans config bureaux → masquer
+    if(ts.bureauxFixes==null)return;
 
     const card=mk("div","",{style:{marginBottom:"16px",borderRadius:"10px",border:"1px solid #e5e7eb",overflow:"hidden"}});
 
-    // Header équipe
     const hdr=mk("div","",{style:{background:"#1e3a5f",color:"#fff",padding:"8px 12px",fontWeight:"600",fontSize:"13px"}},[
       team,
       mk("span","",{style:{fontSize:"10px",fontWeight:"normal",marginLeft:"8px",opacity:"0.8"}},[
@@ -4074,11 +4083,9 @@ function buildVisitorView(){
     ]);
     card.appendChild(hdr);
 
-    // Tableau des disponibilités
     const table=document.createElement("table");
     table.style.cssText="width:100%;border-collapse:collapse;font-size:12px";
 
-    // En-tête jours
     const thead=table.createTHead();
     const r1=thead.insertRow();
     r1.appendChild(mk("th","",{style:{width:"60px",padding:"4px 6px",background:"#f9fafb",borderBottom:"1px solid #e5e7eb"}},[""]));
@@ -4088,44 +4095,65 @@ function buildVisitorView(){
         padding:"4px",textAlign:"center",
         background:isToday?"#dbeafe":"#f9fafb",
         borderBottom:"1px solid #e5e7eb",
-        colSpan:String(slots.length),
       }},[`${DAYS_FULL[d.getDay()].slice(0,3)} ${d.getDate()}`]);
       th.colSpan=slots.length;
       r1.appendChild(th);
     });
 
-    // En-tête slots
     const r2=thead.insertRow();
     r2.appendChild(mk("th","",{style:{background:"#f9fafb",borderBottom:"1px solid #e5e7eb"}},[""]));
     workDays.forEach(({slots})=>slots.forEach(slot=>{
       r2.appendChild(mk("th","",{style:{padding:"3px",textAlign:"center",fontSize:"10px",background:"#f9fafb",borderBottom:"1px solid #e5e7eb"}},[slot==="AM"?"M":"A"]));
     }));
 
-    // Ligne disponibilités
     const tbody=table.createTBody();
+
+    // Ligne disponibilités
     const tr=tbody.insertRow();
     tr.appendChild(mk("td","",{style:{padding:"4px 6px",fontSize:"11px",color:"#6b7280",fontStyle:"italic"}},["Libres"]));
-
     workDays.forEach(({d,slots})=>slots.forEach(slot=>{
       const avail=calcDeskAvailability(team,d,slot);
+      const dateStr=fmtDate(d);
+      const isPast=d<new Date(new Date().setHours(0,0,0,0));
       const td=document.createElement("td");
-      td.style.cssText="text-align:center;padding:4px;cursor:pointer;font-weight:700;font-size:14px";
-
+      td.style.cssText="text-align:center;padding:4px;font-weight:700;font-size:14px";
       if(avail===null){
         td.textContent="—";td.style.color="#d1d5db";
-      } else if(avail===0){
-        td.textContent="0";td.style.background="#fee2e2";td.style.color="#b91c1c";
+      } else if(avail===0||isPast){
+        td.textContent=avail===null?"—":String(avail);
+        td.style.background="#fee2e2";td.style.color="#b91c1c";
       } else if(avail===1){
         td.textContent="1";td.style.background="#fef3c7";td.style.color="#92400e";
-        td.title="1 bureau disponible — cliquer pour réserver";
+        td.style.cursor="pointer";
         td.addEventListener("click",()=>buildDeskBookingModal(team,d,slot,avail));
       } else {
         td.textContent=String(avail);td.style.background="#dcfce7";td.style.color="#166534";
-        td.title=`${avail} bureaux disponibles — cliquer pour réserver`;
+        td.style.cursor="pointer";
         td.addEventListener("click",()=>buildDeskBookingModal(team,d,slot,avail));
       }
       tr.appendChild(td);
     }));
+
+    // Ligne demandes en cours (pending)
+    const pendingForTeam=S.deskBookings.filter(b=>
+      b.team===team&&b.status==="pending"&&
+      workDays.some(({d})=>fmtDate(d)===b.date)
+    );
+    if(pendingForTeam.length>0){
+      const tr2=tbody.insertRow();
+      tr2.appendChild(mk("td","",{style:{padding:"4px 6px",fontSize:"11px",color:"#92400e",fontStyle:"italic"}},["En attente"]));
+      workDays.forEach(({d,slots})=>slots.forEach(slot=>{
+        const dateStr=fmtDate(d);
+        const count=S.deskBookings.filter(b=>b.team===team&&b.date===dateStr&&b.slot===slot&&b.status==="pending").length;
+        const td2=document.createElement("td");
+        td2.style.cssText="text-align:center;padding:4px;font-size:12px";
+        if(count>0){
+          td2.textContent=String(count);
+          td2.style.background="#fef9c3";td2.style.color="#92400e";td2.style.fontWeight="600";
+        }
+        tr2.appendChild(td2);
+      }));
+    }
 
     card.appendChild(table);
     wrap.appendChild(card);
@@ -4133,6 +4161,9 @@ function buildVisitorView(){
 
   app.appendChild(wrap);
   app.appendChild(mk("p","hint",{},["Cliquez sur un créneau vert ou orange pour demander un bureau."]));
+
+  // Afficher navPicker si demandé
+  if(S.modal==="navPicker") app.appendChild(buildNavPickerModal());
 }
 
 // ─── MODAL RÉSERVATION BUREAU (visiteur) ──────────────────────────────────────
@@ -4148,7 +4179,7 @@ function buildDeskBookingModal(team,d,slot,avail){
   const commentInp=mk("input","",{type:"text",placeholder:"Motif (optionnel)",style:{width:"100%"}});
   const errEl=mk("p","",{style:{color:"#ef4444",fontSize:"12px",minHeight:"16px",margin:"4px 0 0"}});
 
-  const close=()=>overlay.remove();
+  const close=()=>{overlay.remove();};
 
   const btnSend=mk("button","btn",{
     style:{background:"#2563eb",color:"#fff",flex:"1"},
@@ -4165,8 +4196,13 @@ function buildDeskBookingModal(team,d,slot,avail){
         }).select().single();
         if(error)throw error;
         S.deskBookings=[data,...S.deskBookings];
+        // Notification admin par mail
+        const subject=encodeURIComponent(`[Planning] Demande bureau — ${team}`);
+        const dateLabel=`${dayLbl} — ${slotLbl}`;
+        const mailBody=encodeURIComponent(`Bonjour,\n\nDemande de réservation de bureau :\n• Équipe : ${team}\n• Date : ${dateLabel}\n• Email visiteur : ${email}\n• Motif : ${commentInp.value.trim()||"—"}\n\nConnectez-vous pour valider.\nhttps://cadence31.vercel.app`);
+        window.open(`mailto:${_ADM}?subject=${subject}&body=${mailBody}`,"_blank");
         close();
-        buildVisitorView();
+        render();
       }catch(e){
         errEl.textContent="Erreur : "+e.message;
         btnSend.disabled=false;btnSend.textContent="Envoyer";
