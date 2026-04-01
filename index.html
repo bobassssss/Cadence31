@@ -27,14 +27,14 @@ input,select,textarea{font-family:inherit;-webkit-appearance:none;appearance:non
 .btn.seg:first-child{border-radius:7px 0 0 7px}
 .btn.seg:last-child{border-radius:0 7px 7px 0;border-right-width:0.5px}
 /* grid */
-.grid-wrap{overflow-x:auto;border-radius:10px;border:0.5px solid #e2e8f0;background:#fff;-webkit-overflow-scrolling:touch;margin-bottom:10px;max-width:100%}
+.grid-wrap{overflow-x:auto;border-radius:10px;border:0.5px solid #e2e8f0;background:#fff;-webkit-overflow-scrolling:touch;margin-bottom:10px;max-width:100%;width:100%}
 /* Séparateur Sam/Mar en vue mois et modèle */
 .week-start{border-left:2.5px solid #94a3b8!important}
-/* PC: agrandir colonnes activité */
+/* PC: colonnes adaptatives selon l'espace */
 @media(min-width:900px){
-  .td-cell,.th-slot{width:42px;min-width:42px}
-  .td-mcell,.th-mday{width:28px;min-width:28px}
-  .tpl-cell{width:42px;min-width:42px}
+  .td-cell,.th-slot{width:clamp(28px,3.5vw,52px);min-width:28px}
+  .td-mcell,.th-mday{width:clamp(22px,2.8vw,38px);min-width:22px}
+  .tpl-cell{width:clamp(32px,3.5vw,48px);min-width:32px}
 }
 /* Mobile narrow */
 @media(max-width:480px){
@@ -43,7 +43,7 @@ input,select,textarea{font-family:inherit;-webkit-appearance:none;appearance:non
   .td-cov-post,.sep-post{left:84px}
   .td-cell,.th-slot{width:28px;min-width:28px}
 }
-table{border-collapse:collapse;font-size:11px;table-layout:fixed}
+table{border-collapse:collapse;font-size:11px;table-layout:fixed;width:100%}
 th,td{border:0.5px solid #e9ecef;vertical-align:middle}
 .th-name{width:116px;min-width:116px;padding:5px 7px;font-weight:500;font-size:11px;text-align:left;background:#f8fafc;position:sticky;left:0;z-index:6}
 .th-post{width:50px;min-width:50px;padding:3px 2px;font-size:10px;color:#9ca3af;text-align:center;background:#f8fafc;position:sticky;left:116px;z-index:6}
@@ -1023,6 +1023,14 @@ function makeTdName(member){
 // Réordonnancement sur mouseup global
 document.addEventListener("mouseup",()=>{
   document.querySelectorAll(".drag-over-row").forEach(r=>r.classList.remove("drag-over-row"));
+  // Fin du drag template editor
+  if(S.tplDrag){
+    const cells=S.tplDrag.cells;
+    S.tplDrag=null;
+    if(cells&&cells.length>0){S.tplActKeys=cells;S.tplActInitComment="";S.modal="tplActivity";render();}
+    return;
+  }
+  // Fin du drag réordonnancement membres
   if(!S.memberDrag)return;
   const{memberId,team,targetId}=S.memberDrag;
   S.memberDrag=null;
@@ -1753,30 +1761,64 @@ function buildSettingsModal(){
     });
   }
 
-  // Lieux personnalisables (L3/L4)
-  siteSection.appendChild(mk("p","",{style:{fontSize:"10px",color:"#94a3b8",margin:"8px 0 4px"}},["Lieux personnalisables (code auto 3 lettres) :"]));
-  workSites.filter(s=>!s.fixed).forEach(s=>{
-    const nonFixedSites=workSites.filter(x=>!x.fixed);
-    const nfi=nonFixedSites.indexOf(s);
-    const allNonFixed=()=>nonFixedSites.map(x=>siteInputs[x.code]?.value||x.label);
-    const currentCode=labelToCode(s.label,nfi,nonFixedSites.map(x=>x.label));
-    const row=mk("div","site-row");
-    const swatch=mk("span","site-swatch");swatch.style.background=s.bg;swatch.style.borderColor=s.c;
-    const codeSpan=mk("span","site-code",{},[currentCode]);
-    siteCodeSpans[s.code]=codeSpan;
-    const inp=mk("input","",{type:"text"});inp.value=s.label;inp.placeholder="Nom du lieu";
-    inp.addEventListener("input",()=>{
-      s.label=inp.value;
-      nonFixedSites.forEach(ws2=>{
-        const nfi2=nonFixedSites.indexOf(ws2);
-        const newCode=labelToCode(siteInputs[ws2.code]?.value||ws2.label,nfi2,allNonFixed());
-        if(siteCodeSpans[ws2.code])siteCodeSpans[ws2.code].textContent=newCode;
+  // Lieux personnalisables — avec + et suppression
+  siteSection.appendChild(mk("div","",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",margin:"8px 0 4px"}},[
+    mk("p","",{style:{fontSize:"10px",color:"#94a3b8",margin:0}},["Lieux personnalisables :"]),
+    mk("button","btn",{style:{padding:"2px 10px",fontSize:"12px"},onClick:()=>{
+      // Ajouter un nouveau lieu
+      const newCode="L"+(workSites.length+1);
+      workSites.push({code:newCode,label:"Nouveau lieu",fixed:false,c:"#374151",bg:"#f3f4f6",countAs:"present"});
+      rebuildSiteRows();
+    }},["+"]),
+  ]));
+
+  const siteRowsContainer=mk("div","");
+  siteSection.appendChild(siteRowsContainer);
+
+  function rebuildSiteRows(){
+    siteRowsContainer.innerHTML="";
+    workSites.filter(s=>!s.fixed).forEach((s,nfi)=>{
+      const nonFixed=workSites.filter(x=>!x.fixed);
+      const allNonFixed=()=>nonFixed.map(x=>siteInputs[x.code]?.value||x.label);
+      const currentCode=labelToCode(s.label,nfi,nonFixed.map(x=>x.label));
+
+      const row=mk("div","site-row",{style:{flexWrap:"wrap",gap:"4px",marginBottom:"6px",alignItems:"center"}});
+      const swatch=mk("span","site-swatch");swatch.style.background=s.bg;swatch.style.borderColor=s.c;
+      const codeSpan=mk("span","site-code",{},[currentCode]);
+      siteCodeSpans[s.code]=codeSpan;
+
+      // Nom
+      const inp=mk("input","",{type:"text",style:{flex:"1",minWidth:"80px"}});
+      inp.value=s.label;inp.placeholder="Nom du lieu";
+      inp.addEventListener("input",()=>{
+        s.label=inp.value;
+        nonFixed.forEach(ws2=>{
+          const i2=nonFixed.indexOf(ws2);
+          const nc=labelToCode(siteInputs[ws2.code]?.value||ws2.label,i2,allNonFixed());
+          if(siteCodeSpans[ws2.code])siteCodeSpans[ws2.code].textContent=nc;
+        });
       });
+      siteInputs[s.code]=inp;
+
+      // countAs par défaut (présent ou absent)
+      const sel=mk("select","",{style:{fontSize:"11px",padding:"4px 6px",border:"0.5px solid #d1d5db",borderRadius:"6px",background:"#fafafa"}});
+      sel.appendChild(Object.assign(document.createElement("option"),{value:"present",textContent:"✓ Présent"}));
+      sel.appendChild(Object.assign(document.createElement("option"),{value:"absent",textContent:"✗ Absent"}));
+      sel.value=s.countAs||"present";
+      sel.addEventListener("change",()=>{s.countAs=sel.value;});
+
+      // Supprimer
+      const delBtn=mk("button","btn danger",{style:{padding:"2px 7px",fontSize:"11px"},onClick:()=>{
+        const idx=workSites.indexOf(s);
+        if(idx>-1)workSites.splice(idx,1);
+        rebuildSiteRows();
+      }},["✕"]);
+
+      row.appendChild(swatch);row.appendChild(codeSpan);row.appendChild(inp);row.appendChild(sel);row.appendChild(delBtn);
+      siteRowsContainer.appendChild(row);
     });
-    siteInputs[s.code]=inp;
-    row.appendChild(swatch);row.appendChild(codeSpan);row.appendChild(inp);
-    siteSection.appendChild(row);
-  });
+  }
+  rebuildSiteRows();
 
   // ─ Section 2 : Effectif minimum par jour
   const minInputs={};  // team → {global, perDay:{2:..,3:..,4:..,5:..,6:..}}
