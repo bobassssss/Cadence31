@@ -695,7 +695,7 @@ const SCHOOL_VAC={
     ["2025-02-22","2025-03-09"],["2025-04-19","2025-05-04"],
     ["2025-07-05","2025-08-31"],
     ["2025-10-18","2025-11-02"],["2025-12-20","2026-01-04"],
-    ["2026-02-14","2026-03-01"],["2026-04-18","2026-05-03"],
+    ["2026-02-07","2026-02-22"],["2026-04-04","2026-04-19"],
     ["2026-07-04","2026-08-31"],
     ["2026-10-17","2026-11-01"],["2026-12-19","2027-01-03"],
   ],
@@ -704,7 +704,7 @@ const SCHOOL_VAC={
     ["2025-02-08","2025-02-23"],["2025-04-05","2025-04-20"],
     ["2025-07-05","2025-08-31"],
     ["2025-10-18","2025-11-02"],["2025-12-20","2026-01-04"],
-    ["2026-02-07","2026-02-22"],["2026-04-04","2026-04-19"],
+    ["2026-02-14","2026-03-01"],["2026-04-11","2026-04-26"],
     ["2026-07-04","2026-08-31"],
     ["2026-10-24","2026-11-08"],["2026-12-19","2027-01-03"],
   ],
@@ -713,7 +713,7 @@ const SCHOOL_VAC={
     ["2025-02-15","2025-03-02"],["2025-04-12","2025-04-27"],
     ["2025-07-05","2025-08-31"],
     ["2025-10-18","2025-11-02"],["2025-12-20","2026-01-04"],
-    ["2026-02-21","2026-03-08"],["2026-04-11","2026-04-26"],
+    ["2026-02-21","2026-03-08"],["2026-04-18","2026-05-03"],
     ["2026-07-04","2026-08-31"],
     ["2026-10-17","2026-11-01"],["2026-12-19","2027-01-03"],
   ],
@@ -942,7 +942,7 @@ function buildTopBar(){
     ...(isAdmin()?[
       mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Modèle type",onClick:()=>{S.modal="tplList";render();}},["📋"]),
       mk("button","btn",{onClick:()=>{S.modal="importMwork";render();}},["↓ m-work"]),
-      mk("button","btn",{onClick:()=>{S.editMember=null;S.modal="member";render();}},["+ Membre"]),
+      mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Ajouter un membre",onClick:()=>{S.editMember=null;S.modal="member";render();}},["👤"]),
       mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Paramètres",onClick:()=>{S.modal="settings";render();}},["🔧"]),
       mk("button","btn danger",{style:{padding:"6px 10px",fontSize:"16px"},title:"Effacer des activités",onClick:()=>{S.modal="clearData";render();}},["🗑"]),
       (()=>{
@@ -956,7 +956,7 @@ function buildTopBar(){
       })(),
     ]:[]),
     mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Statistiques",onClick:()=>{S.modal="stats";render();}},["📊"]),
-    mk("button","btn",{onClick:()=>{S.showLegend=!S.showLegend;render();}},[S.showLegend?"Masquer légende":"Légende"]),
+    mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:S.showLegend?"Masquer la légende":"Légende",onClick:()=>{S.showLegend=!S.showLegend;render();}},["🔑"]),
     ...(S.undoStack.length>0?[mk("button","btn",{style:{padding:"6px 9px"},onClick:async()=>{await undoLast();}},["↩ Annuler"])]:[] ),
     ...(!isAdmin()&&S.pendingEntries.length>0?[(()=>{
       const btn=mk("button","btn",{style:{padding:"6px 9px",background:"#2563eb",color:"#fff",position:"relative"},onClick:()=>{S.modal="requestBasket";render();}},["📋 Ma demande"]);
