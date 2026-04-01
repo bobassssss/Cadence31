@@ -902,7 +902,7 @@ function buildTopBar(){
     (()=>{
       const logoEl=mk("div","logo",{style:{cursor:isAdmin()?"pointer":"default",display:"flex",alignItems:"center"}});
       if(S.settings.logoDataUrl){
-        const img=mk("img","",{src:S.settings.logoDataUrl,style:{maxHeight:"36px",maxWidth:"120px",objectFit:"contain",display:"block"}});
+        const img=mk("img","",{src:S.settings.logoDataUrl,style:{maxHeight:"52px",maxWidth:"160px",objectFit:"contain",display:"block"}});
         logoEl.appendChild(img);
       } else {
         logoEl.textContent=isAdmin()?"+ Logo":"";
@@ -943,7 +943,7 @@ function buildTopBar(){
       mk("button","btn",{onClick:()=>{S.modal="tplList";render();}},["Modèle"]),
       mk("button","btn",{onClick:()=>{S.modal="importMwork";render();}},["↓ m-work"]),
       mk("button","btn",{onClick:()=>{S.editMember=null;S.modal="member";render();}},["+ Membre"]),
-      mk("button","btn",{style:{padding:"6px 9px"},onClick:()=>{S.modal="settings";render();}},["⚙ Paramètres"]),
+      mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Paramètres",onClick:()=>{S.modal="settings";render();}},["⚙"]),
       mk("button","btn danger",{style:{padding:"6px 9px"},onClick:()=>{S.modal="clearData";render();}},["✕ Effacer"]),
       (()=>{
         const pendingAll=S.requests.filter(r=>r.status==="pending").length+S.deskBookings.filter(b=>b.status==="pending").length;
@@ -955,7 +955,7 @@ function buildTopBar(){
         return btn;
       })(),
     ]:[]),
-    mk("button","btn",{style:{padding:"6px 9px"},onClick:()=>{S.modal="stats";render();}},[" Statistiques"]),
+    mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Statistiques",onClick:()=>{S.modal="stats";render();}},["📊"]),
     mk("button","btn",{onClick:()=>{S.showLegend=!S.showLegend;render();}},[S.showLegend?"Masquer légende":"Légende"]),
     ...(S.undoStack.length>0?[mk("button","btn",{style:{padding:"6px 9px"},onClick:async()=>{await undoLast();}},["↩ Annuler"])]:[] ),
     ...(!isAdmin()&&S.pendingEntries.length>0?[(()=>{
@@ -964,7 +964,7 @@ function buildTopBar(){
       btn.appendChild(badge);
       return btn;
     })()]:[]),
-    mk("button","btn",{style:{marginLeft:"auto",padding:"6px 9px",fontSize:"11px"},onClick:logout},["⎋ Quitter"]),
+    mk("button","btn",{style:{marginLeft:"auto",padding:"6px 10px",fontSize:"16px"},title:"Quitter",onClick:logout},["⎋"]),
   ]);
   return mk("div","topbar",{},[r1,r2]);
 }
@@ -4095,7 +4095,7 @@ function buildVisitorView(){
         mk("button","btn",{onClick:()=>{S._visitorWeek=addDays(weekStart,7);render();}},["→"]),
         mk("button","btn today",{onClick:()=>{S._visitorWeek=getMonday(today);render();}},["Auj."]),
       ]),
-      mk("button","btn",{style:{marginLeft:"auto",padding:"6px 9px",fontSize:"11px"},onClick:logout},["⎋ Quitter"]),
+      mk("button","btn",{style:{marginLeft:"auto",padding:"6px 10px",fontSize:"16px"},title:"Quitter",onClick:logout},["⎋"]),
     ]),
   ]);
   app.appendChild(topbar);
