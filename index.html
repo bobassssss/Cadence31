@@ -389,8 +389,18 @@ async function loadState(){
   if(!_sb){_fixSettings();return;}
   try{
     // Planning
-    const{data:pl}=await _sb.from("planning").select("key,act,comment,count_as");
-    if(pl){S.planning={};pl.forEach(r=>{S.planning[r.key]={act:r.act,comment:r.comment||"",countAs:r.count_as||undefined};});}
+    // Planning — chargement paginé pour dépasser la limite de 1000 lignes Supabase
+    let allRows=[];
+    let from=0;
+    const PAGE=1000;
+    while(true){
+      const{data:pl,error}=await _sb.from("planning").select("key,act,comment,count_as").range(from,from+PAGE-1);
+      if(error||!pl||pl.length===0)break;
+      allRows=allRows.concat(pl);
+      if(pl.length<PAGE)break;
+      from+=PAGE;
+    }
+    if(allRows.length>0){S.planning={};allRows.forEach(r=>{S.planning[r.key]={act:r.act,comment:r.comment||"",countAs:r.count_as||undefined};});}
     // Members — triés par sort_order pour conserver l'ordre d'affichage
     const{data:mb}=await _sb.from("members").select("*").order("sort_order",{ascending:true,nullsFirst:false});
     if(mb&&mb.length>0)S.members=mb.map(r=>({id:r.id,name:r.name,team:r.team,post:r.post,email:r.email}));
@@ -868,19 +878,7 @@ function buildTopBar(){
       mk("button","btn seg"+(S.view==="month"?" active":""),{onClick:()=>{S.view="month";render();}},["Mois"]),
     ]),
   ]);
-  const teamSel=document.createElement("select");
-  teamSel.style.cssText="padding:6px 10px;font-size:12px;border-radius:7px;border:0.5px solid #e2e8f0;background:#fff;color:#374151;cursor:pointer;outline:none";
-  const optAll=document.createElement("option");optAll.value="all";optAll.textContent="Toutes les équipes";
-  if(S.activeTeam==="all")optAll.selected=true;
-  teamSel.appendChild(optAll);
-  teams.forEach(t=>{
-    const o=document.createElement("option");o.value=t;o.textContent=t;
-    if(S.activeTeam===t)o.selected=true;
-    teamSel.appendChild(o);
-  });
-  teamSel.addEventListener("change",()=>{S.activeTeam=teamSel.value;render();});
   const r2=mk("div","topbar-row",{},[
-    teamSel,
     ...(isAdmin()?[
       mk("button","btn",{onClick:()=>{S.modal="tplList";render();}},["Modèle"]),
       mk("button","btn",{onClick:()=>{S.modal="importMwork";render();}},["↓ m-work"]),
