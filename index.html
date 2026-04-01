@@ -899,7 +899,34 @@ function buildTopBar(){
   const next=()=>{if(S.view==="week")S.weekStart=addDays(S.weekStart,7);else{const m=new Date(S.monthRef);m.setMonth(m.getMonth()+1);S.monthRef=m;}render();};
   const goToday=()=>{S.weekStart=getMonday(new Date());S.monthRef=new Date();render();};
   const r1=mk("div","topbar-row",{},[
-    mk("span","logo",{},["Planning"]),
+    (()=>{
+      const logoEl=mk("div","logo",{style:{cursor:isAdmin()?"pointer":"default",display:"flex",alignItems:"center"}});
+      if(S.settings.logoDataUrl){
+        const img=mk("img","",{src:S.settings.logoDataUrl,style:{maxHeight:"36px",maxWidth:"120px",objectFit:"contain",display:"block"}});
+        logoEl.appendChild(img);
+      } else {
+        logoEl.textContent=isAdmin()?"+ Logo":"";
+        logoEl.style.color="#94a3b8";logoEl.style.fontSize="12px";
+      }
+      if(isAdmin()){
+        logoEl.title="Cliquer pour changer le logo";
+        logoEl.addEventListener("click",()=>{
+          const inp=document.createElement("input");
+          inp.type="file";inp.accept="image/*";
+          inp.addEventListener("change",()=>{
+            const file=inp.files[0];if(!file)return;
+            const reader=new FileReader();
+            reader.onload=e=>{
+              S.settings.logoDataUrl=e.target.result;
+              persist();render();
+            };
+            reader.readAsDataURL(file);
+          });
+          inp.click();
+        });
+      }
+      return logoEl;
+    })(),
     mk("div","nav-week",{},[
       mk("button","btn",{onClick:prev},["←"]),
       mk("span","wlabel",{style:{cursor:"pointer"},onClick:()=>{S.modal="navPicker";render();}},[lbl]),
@@ -1490,15 +1517,21 @@ function buildActivityModal(){
   const customCodes=nonFixed.map((s,i)=>labelToCode(s.label,i,nonFixedLabels));
   let commentInp;
   // countAs state for custom sites (toggleable)
-  let pendingCode=null, pendingCountAs="present";
+  let pendingCode=null;
 
   const close=()=>{S.modal=null;S.actCells=[];pendingCode=null;render();};
 
-  // Commit l'activité avec éventuellement countAs
-  const commit=(code,countAs)=>{
+  // Commit — countAs vient des paramètres du lieu (plus de choix à la saisie)
+  const commit=(code)=>{
     const comment=commentInp?commentInp.value.trim():"";
     pushUndo(cells);
     const saved={};
+    const site=(S.settings.customSites||DEFAULT_CUSTOM_SITES).find(s=>{
+      const nf=(S.settings.customSites||DEFAULT_CUSTOM_SITES).filter(x=>!x.fixed);
+      const nl=nf.map(x=>x.label);
+      return nf.some((x,i)=>labelToCode(x.label,i,nl)===code&&x===s);
+    });
+    const countAs=site?.countAs||"present";
     cells.forEach(k=>{
       const entry={act:code,comment};
       if(customCodes.includes(code)&&countAs==="absent")entry.countAs="absent";
@@ -1507,13 +1540,6 @@ function buildActivityModal(){
     });
     _persistPlanningEntries(saved);
     persist();S.modal=null;S.actCells=[];render();
-  };
-
-  // Quand on clique sur un lieu perso → afficher le sous-choix présent/absent
-  const onCustomSite=(code)=>{
-    pendingCode=code;
-    pendingCountAs=(S.actInitCountAs||"present");
-    rebuildModal();
   };
 
   const resetDefault=()=>{pushUndo(cells);cells.forEach(k=>{delete S.planning[k];_deleteKey(k);});persist();S.modal=null;S.actCells=[];render();};
@@ -1525,36 +1551,6 @@ function buildActivityModal(){
     const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[mk("h3"),mk("button","mclose",{onClick:close},["×"])]);
     hdr.querySelector("h3").textContent=`Activité${cells.length>1?" · "+cells.length+" cases":""}`;
     body.push(hdr);
-
-    if(pendingCode){
-      // Sous-écran : choix présent/absent pour lieu perso
-      const a=ACTS[pendingCode];
-      body.push(mk("div","",{style:{background:a?a.bg:"#f9fafb",borderRadius:"8px",padding:"10px 12px",marginBottom:"10px",display:"flex",alignItems:"center",gap:"8px"}},[
-        mk("strong","",{style:{color:a?a.c:"#374151"}},[pendingCode]),
-        mk("span","",{style:{fontSize:"12px",color:a?a.c:"#6b7280"}},[a?a.l:""]),
-      ]));
-      body.push(mk("p","grp-label",{},["Ce créneau compte comme :"]));
-      const toggleWrap=mk("div","",{style:{display:"flex",gap:"8px",marginBottom:"12px"}});
-      const mkToggle=(val,label,color,bg)=>{
-        const btn=mk("button","btn"+(pendingCountAs===val?" active":""),{
-          style:{flex:"1",padding:"8px",fontSize:"12px",background:pendingCountAs===val?bg:"#fff",color:pendingCountAs===val?color:"#374151",borderColor:pendingCountAs===val?color:"#e2e8f0"},
-          onClick:()=>{pendingCountAs=val;rebuildModal();}
-        },[label]);
-        return btn;
-      };
-      toggleWrap.appendChild(mkToggle("present","✓ Présent (compte dans l'équipe)","#166534","#dcfce7"));
-      toggleWrap.appendChild(mkToggle("absent","✗ Absent (ne compte pas)","#b91c1c","#fee2e2"));
-      body.push(toggleWrap);
-      // Commentaire
-      body.push(mk("div","frow",{style:{marginTop:"4px"}},[mk("label","lf",{},["Commentaire (optionnel)"])]));
-      commentInp=mk("input","",{type:"text",placeholder:"Ex : mission externe…"});
-      commentInp.value=S.actInitComment||"";
-      body[body.length-1].appendChild(commentInp);
-      body.push(mk("div","mfooter",{},[
-        mk("button","btn",{onClick:()=>{pendingCode=null;rebuildModal();}},[" ← Retour"]),
-        mk("button","btn primary",{style:{flex:"2"},onClick:()=>commit(pendingCode,pendingCountAs)},["Valider"]),
-      ]));
-    } else {
       // Écran principal : liste des activités
       // Non-admin : uniquement CP, DP, TP
       const USER_ALLOWED=["CP","DP","TP"];
@@ -1567,7 +1563,7 @@ function buildActivityModal(){
           const a=ACTS[code];if(!a)return;
           const isCustom=customCodes.includes(code);
           const btn=mk("button","act-btn",{onClick:()=>{
-            if(isCustom){onCustomSite(code);}
+            if(isCustom){commit(code);}
             else{
               pendingCode=null;
               const comment=commentInp?commentInp.value.trim():"";
@@ -1579,7 +1575,6 @@ function buildActivityModal(){
               if(code==="CRC"){
                 S.actCells=[];S.modal="crcDashboard";render();
               } else if(!isAdmin()&&["CP","DP","TP"].includes(code)){
-                // Workflow demande : ajouter au panier (pas de popup immédiat)
                 S.pendingEntries.push({cells:[...cells],code});
                 S.modal=null;S.actCells=[];render();
               } else {
@@ -1590,8 +1585,7 @@ function buildActivityModal(){
           btn.style.background=a.bg;btn.style.color=a.c;
           const s=document.createElement("strong");s.textContent=code;
           const l=document.createElement("span");l.className="lbl";l.textContent=a.l;
-          if(isCustom){const arrow=document.createElement("span");arrow.style.cssText="font-size:9px;opacity:.6;margin-left:2px";arrow.textContent="›";btn.appendChild(s);btn.appendChild(l);btn.appendChild(arrow);}
-          else{btn.appendChild(s);btn.appendChild(l);}
+          btn.appendChild(s);btn.appendChild(l);
           grid.appendChild(btn);
         });
         body.push(grid);
@@ -1604,7 +1598,6 @@ function buildActivityModal(){
         mk("button","btn danger",{onClick:resetDefault},["↺ Présent (défaut)"]),
         mk("button","btn",{onClick:close},["Fermer"]),
       ]));
-    }
 
     modalEl=mk("div","modal",{},[...body]);
     const ov=mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[modalEl]);
@@ -1763,7 +1756,7 @@ function buildSettingsModal(){
 
   // Lieux personnalisables — avec + et suppression
   siteSection.appendChild(mk("div","",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",margin:"8px 0 4px"}},[
-    mk("p","",{style:{fontSize:"10px",color:"#94a3b8",margin:0}},["Lieux personnalisables :"]),
+    mk("p","",{style:{fontSize:"10px",color:"#94a3b8",margin:0}},["Activités et lieux personnalisables :"]),
     mk("button","btn",{style:{padding:"2px 10px",fontSize:"12px"},onClick:()=>{
       // Ajouter un nouveau lieu
       const newCode="L"+(workSites.length+1);
