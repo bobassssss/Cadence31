@@ -1027,7 +1027,7 @@ function makeTdPost(member){
 // ─── COVERAGE ROW ────────────────────────────────────────────────────────────
 function makeCoverageRow(team,workDays){
   const tr=document.createElement("tr");tr.className="tr-cov";
-  tr.appendChild(mk("td","td-cov-lbl",{},["Présents"]));
+  tr.appendChild(mk("td","td-cov-lbl",{},["Effectifs"]));
   tr.appendChild(mk("td","td-cov-post",{}));
   workDays.forEach(({d,slots})=>{
     slots.forEach(slot=>{
@@ -1159,7 +1159,13 @@ function buildWeekGrid(){
   const table=document.createElement("table");
   const thead=table.createTHead();
   const r1=thead.insertRow();
-  r1.appendChild(mk("th","th-name",{rowSpan:"2"},["Collaborateur"]));
+  const thName1=mk("th","th-name",{rowSpan:"2"});
+  const tSel1=document.createElement("select");
+  tSel1.style.cssText="font-size:11px;border:none;background:transparent;color:#374151;cursor:pointer;outline:none;width:100%";
+  const tAll1=document.createElement("option");tAll1.value="all";tAll1.textContent="Toutes";if(S.activeTeam==="all")tAll1.selected=true;tSel1.appendChild(tAll1);
+  getTeams().forEach(t=>{const o=document.createElement("option");o.value=t;o.textContent=t;if(S.activeTeam===t)o.selected=true;tSel1.appendChild(o);});
+  tSel1.addEventListener("change",()=>{S.activeTeam=tSel1.value;render();});
+  thName1.appendChild(tSel1);r1.appendChild(thName1);
   r1.appendChild(mk("th","th-post",{rowSpan:"2"},["Poste"]));
   workDays.forEach(({d,slots})=>{
     const tod=fmtDate(d)===todayStr,alertDay=dayHasStaffAlert(d);
@@ -1177,7 +1183,7 @@ function buildWeekGrid(){
     r1.appendChild(th);
   });
   const r2=thead.insertRow();
-  workDays.forEach(({slots})=>slots.forEach(slot=>r2.appendChild(mk("th","th-slot",{},[slot==="AM"?"M":"S"]))));
+  workDays.forEach(({slots})=>slots.forEach(slot=>r2.appendChild(mk("th","th-slot",{},[slot==="AM"?"M":"A"]))));
   const tbody=table.createTBody();
   teams.forEach(team=>{
     const isCollapsed=S.collapsedTeams.has(team);
@@ -1233,7 +1239,13 @@ function buildMonthGrid(){
   const table=document.createElement("table");
   const thead=table.createTHead();
   const r1=thead.insertRow();
-  r1.appendChild(mk("th","th-name",{rowSpan:"2"},["Collaborateur"]));
+  const thName2=mk("th","th-name",{rowSpan:"2"});
+  const tSel2=document.createElement("select");
+  tSel2.style.cssText="font-size:11px;border:none;background:transparent;color:#374151;cursor:pointer;outline:none;width:100%";
+  const tAll2=document.createElement("option");tAll2.value="all";tAll2.textContent="Toutes";if(S.activeTeam==="all")tAll2.selected=true;tSel2.appendChild(tAll2);
+  getTeams().forEach(t=>{const o=document.createElement("option");o.value=t;o.textContent=t;if(S.activeTeam===t)o.selected=true;tSel2.appendChild(o);});
+  tSel2.addEventListener("change",()=>{S.activeTeam=tSel2.value;render();});
+  thName2.appendChild(tSel2);r1.appendChild(thName2);
   r1.appendChild(mk("th","th-post",{rowSpan:"2"},["Poste"]));
   workDays.forEach(({d},idx)=>{
     const tod=fmtDate(d)===todayStr,alertDay=dayHasStaffAlert(d);
@@ -1260,7 +1272,7 @@ function buildMonthGrid(){
     if(!isCollapsed){
     // coverage row compacte
     const covTr=tbody.insertRow();covTr.className="tr-cov";
-    covTr.appendChild(mk("td","td-cov-lbl",{style:{background:"#f9fafb"}},["Eff."]));
+    covTr.appendChild(mk("td","td-cov-lbl",{style:{background:"#f9fafb"}},["Effectifs"]));
     covTr.appendChild(mk("td","td-cov-post",{style:{background:"#f9fafb"}}));
     workDays.forEach(({d,slots})=>{
       const covs=slots.map(slot=>teamCoverage(team,d,slot));
@@ -1306,7 +1318,7 @@ function buildMonthGrid(){
           const h=document.createElement("div");h.className="td-mcell-half";
           h.style.background=isSel?"#dbeafe":(ai?ai.bg:"transparent");
           h.style.color=ai?ai.c:"#d1d5db";h.textContent=ai?(ai.disp||actCode):actCode;
-          if(entry.comment)tooltipParts.push((slot==="AM"?"M":"S")+": "+entry.comment);
+          if(entry.comment)tooltipParts.push((slot==="AM"?"M":"A")+": "+entry.comment);
           inner.appendChild(h);
         });
         if(slots.length===1){const gh=document.createElement("div");gh.className="td-mcell-half";gh.style.background="#f9fafb";gh.style.color="#e5e7eb";gh.textContent="/";inner.appendChild(gh);}
@@ -1774,7 +1786,7 @@ function buildSettingsModal(){
     dayOffsets.forEach(off=>{
       const slots=off===5?["AM"]:["AM","PM"];
       slots.forEach(slot=>{
-        const th=mk("th","",{},[slot==="AM"?"M":"S"]);
+        const th=mk("th","",{},[slot==="AM"?"M":"A"]);
         slotRow.appendChild(th);
       });
     });
@@ -2019,7 +2031,7 @@ function buildTplEditor(){
     WORK_OFFSETS.forEach((off,oi)=>{
       const slots=off===5?["AM"]:["AM","PM"];
       slots.forEach((slot,si)=>{
-        const th=mk("th","th-slot",{},[slot==="AM"?"M":"S"]);
+        const th=mk("th","th-slot",{},[slot==="AM"?"M":"A"]);
         if(w===1&&oi===0&&si===0)th.style.borderLeft="2.5px solid #94a3b8";
         r3.appendChild(th);
       });
