@@ -4134,26 +4134,22 @@ function buildVisitorView(){
       tr.appendChild(td);
     }));
 
-    // Ligne demandes en cours (pending)
-    const pendingForTeam=S.deskBookings.filter(b=>
-      b.team===team&&b.status==="pending"&&
-      workDays.some(({d})=>fmtDate(d)===b.date)
-    );
-    if(pendingForTeam.length>0){
-      const tr2=tbody.insertRow();
-      tr2.appendChild(mk("td","",{style:{padding:"4px 6px",fontSize:"11px",color:"#92400e",fontStyle:"italic"}},["En attente"]));
-      workDays.forEach(({d,slots})=>slots.forEach(slot=>{
-        const dateStr=fmtDate(d);
-        const count=S.deskBookings.filter(b=>b.team===team&&b.date===dateStr&&b.slot===slot&&b.status==="pending").length;
-        const td2=document.createElement("td");
-        td2.style.cssText="text-align:center;padding:4px;font-size:12px";
-        if(count>0){
-          td2.textContent=String(count);
-          td2.style.background="#fef9c3";td2.style.color="#92400e";td2.style.fontWeight="600";
-        }
-        tr2.appendChild(td2);
-      }));
-    }
+    // Ligne demandes en cours (toujours affichée)
+    const tr2=tbody.insertRow();
+    tr2.appendChild(mk("td","",{style:{padding:"4px 6px",fontSize:"11px",color:"#92400e",fontStyle:"italic"}},["En attente"]));
+    workDays.forEach(({d,slots})=>slots.forEach(slot=>{
+      const dateStr=fmtDate(d);
+      const count=S.deskBookings.filter(b=>b.team===team&&b.date===dateStr&&b.slot===slot&&b.status==="pending").length;
+      const td2=document.createElement("td");
+      td2.style.cssText="text-align:center;padding:4px;font-size:12px";
+      if(count>0){
+        td2.textContent=String(count);
+        td2.style.background="#fef9c3";td2.style.color="#92400e";td2.style.fontWeight="600";
+      } else {
+        td2.textContent="—";td2.style.color="#e5e7eb";
+      }
+      tr2.appendChild(td2);
+    }));
 
     card.appendChild(table);
     wrap.appendChild(card);
@@ -4196,11 +4192,11 @@ function buildDeskBookingModal(team,d,slot,avail){
         }).select().single();
         if(error)throw error;
         S.deskBookings=[data,...S.deskBookings];
-        // Notification admin par mail
-        const subject=encodeURIComponent(`[Planning] Demande bureau — ${team}`);
+        // Même système que les congés — ouvre l'app mail
         const dateLabel=`${dayLbl} — ${slotLbl}`;
+        const subject=encodeURIComponent(`[Planning] Demande bureau — ${team}`);
         const mailBody=encodeURIComponent(`Bonjour,\n\nDemande de réservation de bureau :\n• Équipe : ${team}\n• Date : ${dateLabel}\n• Email visiteur : ${email}\n• Motif : ${commentInp.value.trim()||"—"}\n\nConnectez-vous pour valider.\nhttps://cadence31.vercel.app`);
-        window.open(`mailto:${_ADM}?subject=${subject}&body=${mailBody}`,"_blank");
+        window.location.href=`mailto:${_ADM}?from=${encodeURIComponent(email)}&subject=${subject}&body=${mailBody}`;
         close();
         render();
       }catch(e){
