@@ -940,14 +940,14 @@ function buildTopBar(){
   ]);
   const r2=mk("div","topbar-row",{},[
     ...(isAdmin()?[
-      mk("button","btn",{onClick:()=>{S.modal="tplList";render();}},["Modèle"]),
+      mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Modèle type",onClick:()=>{S.modal="tplList";render();}},["📋"]),
       mk("button","btn",{onClick:()=>{S.modal="importMwork";render();}},["↓ m-work"]),
       mk("button","btn",{onClick:()=>{S.editMember=null;S.modal="member";render();}},["+ Membre"]),
-      mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Paramètres",onClick:()=>{S.modal="settings";render();}},["⚙"]),
-      mk("button","btn danger",{style:{padding:"6px 9px"},onClick:()=>{S.modal="clearData";render();}},["✕ Effacer"]),
+      mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Paramètres",onClick:()=>{S.modal="settings";render();}},["🔧"]),
+      mk("button","btn danger",{style:{padding:"6px 10px",fontSize:"16px"},title:"Effacer des activités",onClick:()=>{S.modal="clearData";render();}},["🗑"]),
       (()=>{
         const pendingAll=S.requests.filter(r=>r.status==="pending").length+S.deskBookings.filter(b=>b.status==="pending").length;
-        const btn=mk("button","btn",{style:{padding:"6px 9px",position:"relative"},onClick:()=>{S.modal="requestsAdmin";render();}},["✉ Demandes"]);
+        const btn=mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px",position:"relative"},title:"Demandes",onClick:()=>{S.modal="requestsAdmin";render();}},["✉"]);
         if(pendingAll>0){
           const badge=mk("span","",{style:{position:"absolute",top:"-5px",right:"-5px",background:"#ef4444",color:"#fff",borderRadius:"50%",fontSize:"10px",fontWeight:"bold",width:"16px",height:"16px",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:"1"}},[String(pendingAll)]);
           btn.appendChild(badge);
@@ -964,7 +964,7 @@ function buildTopBar(){
       btn.appendChild(badge);
       return btn;
     })()]:[]),
-    mk("button","btn",{style:{marginLeft:"auto",padding:"6px 10px",fontSize:"16px"},title:"Quitter",onClick:logout},["⎋"]),
+    mk("button","btn",{style:{marginLeft:"auto",padding:"6px 10px",fontSize:"16px"},title:"Quitter",onClick:logout},["🚪"]),
   ]);
   return mk("div","topbar",{},[r1,r2]);
 }
@@ -4095,7 +4095,7 @@ function buildVisitorView(){
         mk("button","btn",{onClick:()=>{S._visitorWeek=addDays(weekStart,7);render();}},["→"]),
         mk("button","btn today",{onClick:()=>{S._visitorWeek=getMonday(today);render();}},["Auj."]),
       ]),
-      mk("button","btn",{style:{marginLeft:"auto",padding:"6px 10px",fontSize:"16px"},title:"Quitter",onClick:logout},["⎋"]),
+      mk("button","btn",{style:{marginLeft:"auto",padding:"6px 10px",fontSize:"16px"},title:"Quitter",onClick:logout},["🚪"]),
     ]),
   ]);
   app.appendChild(topbar);
