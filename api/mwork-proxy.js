@@ -1,6 +1,4 @@
 // api/mwork-proxy.js
-// Proxy Vercel → appelle m-work API (getPlannerData + time_off_request)
-
 const PLANNER_ID = "69aea462646ef8fbf8ebd9ee";
 const COMPANY_ID = "693042e16ec252fe0f990934";
 
@@ -32,8 +30,7 @@ module.exports = async function handler(req, res) {
 
   const plannerData = await plannerResp.json();
 
-  // 2. time_off_request (demandes de congés PENDING + APPROVED)
-  // Appelé une seule fois (pas par mois) — contient toutes les demandes
+  // 2. time_off_request (demandes congés)
   let timeOffRequests = [];
   try {
     const torResp = await fetch(
@@ -45,12 +42,24 @@ module.exports = async function handler(req, res) {
       timeOffRequests = torData.timeOffRequestList || [];
     }
   } catch (e) {
-    // Non bloquant — on continue sans les demandes
     console.error("time_off_request error:", e);
   }
 
-  // Injecter les demandes dans la réponse
+  // 3. Extraire le catalogue d'activités depuis la réponse planner
+  // Les définitions sont dans le JSON brut sous forme d'objets avec id+name+color+externalId
+  const activityCatalog = {};
+  try {
+    const raw = JSON.stringify(plannerData);
+    const matches = raw.matchAll(/"id":"([a-f0-9]{24})","companyId":"[^"]+","name":"([^"]+)","icon":"[^"]*","color":"([^"]*)","timeSlots":\[\].*?"externalId":"([^"]*)"/g);
+    for (const m of matches) {
+      activityCatalog[m[1]] = { name: m[2], color: m[3], code: m[4] };
+    }
+  } catch (e) {
+    console.error("activity catalog error:", e);
+  }
+
   plannerData.timeOffRequestList = timeOffRequests;
+  plannerData.activityCatalog = activityCatalog;
 
   return res.status(200).json(plannerData);
 };
