@@ -366,7 +366,7 @@ let S={
   },
   events:{},      // dateStr → commentaire global (conservé pour compatibilité)
   teamEvents:{},  // "teamName|dateStr" → commentaire par équipe
-  activeTeam:"all", showLegend:false,
+  activeTeams:new Set(), showLegend:false,
   modal:null, editMember:null,
   actCells:[], actInitComment:"", actInitCountAs:"present",
   drag:null, touchDrag:false,
@@ -638,7 +638,72 @@ function fmtDate(d){
   return `${y}-${m}-${day}`;
 }
 function getTeams(){return[...new Set(S.members.map(m=>m.team))];}
-function getVisibleTeams(){const ts=getTeams();return S.activeTeam==="all"?ts:ts.filter(t=>t===S.activeTeam);}
+
+// ─── FILTRE ÉQUIPES (multi-sélection) ────────────────────────────────────────
+const _LS_KEY="cadence31_activeTeams";
+function _saveTeamFilter(){try{localStorage.setItem(_LS_KEY,JSON.stringify([...S.activeTeams]));}catch(e){}}
+function _loadTeamFilter(){try{const v=localStorage.getItem(_LS_KEY);if(v){const arr=JSON.parse(v);S.activeTeams=new Set(arr);}}catch(e){}}
+
+// Construit un th avec dropdown multi-checkbox pour filtrer les équipes
+function buildTeamFilterTh(rowSpan){
+  const teams=getTeams();
+  const th=mk("th","th-name",{rowSpan:String(rowSpan)});
+  
+  // Label affiché
+  const lbl=document.createElement("div");
+  lbl.style.cssText="font-size:11px;cursor:pointer;padding:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#374151";
+  const updateLbl=()=>{
+    if(S.activeTeams.size===0)lbl.textContent="Toutes";
+    else if(S.activeTeams.size===1)lbl.textContent=[...S.activeTeams][0];
+    else lbl.textContent=`${S.activeTeams.size} équipes`;
+  };
+  updateLbl();
+
+  // Dropdown
+  const dropdown=document.createElement("div");
+  dropdown.style.cssText="position:absolute;z-index:999;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.12);padding:6px 0;min-width:140px;display:none";
+
+  // Option "Toutes"
+  const allRow=document.createElement("label");
+  allRow.style.cssText="display:flex;align-items:center;gap:8px;padding:5px 12px;cursor:pointer;font-size:12px;color:#374151";
+  const allChk=document.createElement("input");allChk.type="checkbox";
+  allChk.checked=S.activeTeams.size===0;
+  allChk.addEventListener("change",()=>{
+    if(allChk.checked){S.activeTeams.clear();teams.forEach(t=>{const c=dropdown.querySelector(`[data-t="${t}"]`);if(c)c.checked=false;});}
+    _saveTeamFilter();updateLbl();render();
+  });
+  allRow.appendChild(allChk);allRow.appendChild(document.createTextNode("Toutes"));
+  dropdown.appendChild(allRow);
+
+  // Une ligne par équipe
+  teams.forEach(t=>{
+    const row=document.createElement("label");
+    row.style.cssText="display:flex;align-items:center;gap:8px;padding:5px 12px;cursor:pointer;font-size:12px;color:#374151";
+    const chk=document.createElement("input");chk.type="checkbox";chk.dataset.t=t;
+    chk.checked=S.activeTeams.has(t);
+    chk.addEventListener("change",()=>{
+      if(chk.checked){S.activeTeams.add(t);allChk.checked=false;}
+      else{S.activeTeams.delete(t);if(S.activeTeams.size===0)allChk.checked=true;}
+      _saveTeamFilter();updateLbl();render();
+    });
+    row.appendChild(chk);row.appendChild(document.createTextNode(t));
+    dropdown.appendChild(row);
+  });
+
+  // Toggle dropdown
+  let open=false;
+  const wrapper=document.createElement("div");
+  wrapper.style.cssText="position:relative;width:100%";
+  lbl.addEventListener("click",e=>{
+    e.stopPropagation();open=!open;dropdown.style.display=open?"block":"none";
+  });
+  document.addEventListener("click",()=>{open=false;dropdown.style.display="none";},{capture:true,once:false,passive:true});
+
+  wrapper.appendChild(lbl);wrapper.appendChild(dropdown);
+  th.appendChild(wrapper);
+  return th;
+}
+function getVisibleTeams(){const ts=getTeams();return S.activeTeams.size===0?ts:ts.filter(t=>S.activeTeams.has(t));}
 
 
 // ── Jours fériés français (calcul sans objet Date pour éviter tout décalage TZ) ─
@@ -1238,19 +1303,13 @@ function buildTeamNoteModal(){
 function buildWeekGrid(){
   const ws=S.weekStart;
   const todayStr=fmtDate(new Date());
-  const teams=getTeams().filter(t=>S.activeTeam==="all"||t===S.activeTeam);
+  const teams=getTeams().filter(t=>S.activeTeams.size===0||S.activeTeams.has(t));
   const workDays=WORK_OFFSETS.map(i=>{const d=addDays(ws,i);return{d,slots:getDaySlots(d)};});
   const selCells=S.drag?S.drag.cells:S.actCells;
   const table=document.createElement("table");
   const thead=table.createTHead();
   const r1=thead.insertRow();
-  const thName1=mk("th","th-name",{rowSpan:"2"});
-  const tSel1=document.createElement("select");
-  tSel1.style.cssText="font-size:11px;border:none;background:transparent;color:#374151;cursor:pointer;outline:none;width:100%";
-  const tAll1=document.createElement("option");tAll1.value="all";tAll1.textContent="Toutes";if(S.activeTeam==="all")tAll1.selected=true;tSel1.appendChild(tAll1);
-  getTeams().forEach(t=>{const o=document.createElement("option");o.value=t;o.textContent=t;if(S.activeTeam===t)o.selected=true;tSel1.appendChild(o);});
-  tSel1.addEventListener("change",()=>{S.activeTeam=tSel1.value;render();});
-  thName1.appendChild(tSel1);r1.appendChild(thName1);
+  r1.appendChild(buildTeamFilterTh(2));
   r1.appendChild(mk("th","th-post",{rowSpan:"2"},["Poste"]));
   workDays.forEach(({d,slots})=>{
     const tod=fmtDate(d)===todayStr,alertDay=dayHasStaffAlert(d);
@@ -1324,13 +1383,7 @@ function buildMonthGrid(){
   const table=document.createElement("table");
   const thead=table.createTHead();
   const r1=thead.insertRow();
-  const thName2=mk("th","th-name",{rowSpan:"2"});
-  const tSel2=document.createElement("select");
-  tSel2.style.cssText="font-size:11px;border:none;background:transparent;color:#374151;cursor:pointer;outline:none;width:100%";
-  const tAll2=document.createElement("option");tAll2.value="all";tAll2.textContent="Toutes";if(S.activeTeam==="all")tAll2.selected=true;tSel2.appendChild(tAll2);
-  getTeams().forEach(t=>{const o=document.createElement("option");o.value=t;o.textContent=t;if(S.activeTeam===t)o.selected=true;tSel2.appendChild(o);});
-  tSel2.addEventListener("change",()=>{S.activeTeam=tSel2.value;render();});
-  thName2.appendChild(tSel2);r1.appendChild(thName2);
+  r1.appendChild(buildTeamFilterTh(2));
   r1.appendChild(mk("th","th-post",{rowSpan:"2"},["Poste"]));
   workDays.forEach(({d},idx)=>{
     const tod=fmtDate(d)===todayStr,alertDay=dayHasStaffAlert(d);
@@ -2495,7 +2548,7 @@ function buildTeamRenameModal(){
       Object.entries(S.planning).forEach(([k,v])=>{
         if(v.dispatchedTo===oldName)S.planning[k]={...v,dispatchedTo:newName};
       });
-      if(S.activeTeam===oldName)S.activeTeam=newName;
+      if(S.activeTeams.has(oldName)){S.activeTeams.delete(oldName);S.activeTeams.add(newName);}
     }
     persist();close();
   };
@@ -3159,6 +3212,7 @@ function _showApp(user){
   _auth.isAdmin=(user.email===_ADM);
   _auth.isVisitor=(user.email===_VISITOR_EMAIL);
   _auth.memberId=null;
+  _loadTeamFilter(); // restaurer le filtre équipes
   document.getElementById("ls").style.display="none";
   document.getElementById("app").style.display="";
   loadState().then(()=>{
@@ -3932,10 +3986,49 @@ function buildRequestsAdminModal(){
   const pendingConges=S.requests.filter(r=>r.status==="pending").length;
   const pendingBureaux=S.deskBookings.filter(b=>b.status==="pending").length;
   const totalPending=pendingConges+pendingBureaux;
-  const title=mk("h3","",{style:{margin:"0 0 12px"}},
-    [`✉ Demandes${totalPending>0?` (${totalPending} en attente)`:""}`]);
 
-  // Construire les cartes bureaux avec created_at pour tri chronologique
+  // ─ Header avec fermeture
+  const header=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}},[
+    mk("h3","",{style:{margin:0}},[`✉ Demandes${totalPending>0?` (${totalPending} en attente)`:""}`]),
+    mk("button","mclose",{onClick:close},["×"]),
+  ]);
+
+  // ─ Filtres
+  const filterCongesInp=mk("input","",{type:"text",placeholder:"Filtrer par collaborateur…",
+    style:{flex:"1",padding:"5px 8px",fontSize:"12px",border:"0.5px solid #d1d5db",borderRadius:"6px",outline:"none"}});
+  const filterBureauInp=mk("input","",{type:"text",placeholder:"Filtrer par agence…",
+    style:{flex:"1",padding:"5px 8px",fontSize:"12px",border:"0.5px solid #d1d5db",borderRadius:"6px",outline:"none"}});
+  const filtersRow=mk("div","",{style:{display:"flex",gap:"8px",marginBottom:"10px",flexWrap:"wrap"}},[
+    filterCongesInp,filterBureauInp,
+  ]);
+
+  // ─ Conteneur des cartes (re-filtrable)
+  const bodyEl=mk("div","",{style:{maxHeight:"62vh",overflowY:"auto"}});
+
+  function applyFilters(){
+    const fc=filterCongesInp.value.trim().toLowerCase();
+    const fb=filterBureauInp.value.trim().toLowerCase();
+    const filtered=allCards.filter(({card,type,filterKey})=>{
+      if(type==="conge") return !fc||filterKey.includes(fc);
+      if(type==="bureau") return !fb||filterKey.includes(fb);
+      return true;
+    });
+    bodyEl.innerHTML="";
+    if(filtered.length===0){
+      bodyEl.appendChild(mk("p","",{style:{color:"#6b7280",fontStyle:"italic",padding:"12px 0"}},["Aucune demande."]));
+    } else {
+      filtered.forEach(x=>bodyEl.appendChild(x.card));
+    }
+  }
+  filterCongesInp.addEventListener("input",applyFilters);
+  filterBureauInp.addEventListener("input",applyFilters);
+
+  // ─ Assemblage final
+  const footer=mk("div","mfooter",[mk("button","btn",{onClick:close},["Fermer"])]);
+  const box=mk("div","modal",{style:{maxWidth:"420px",width:"95%"}},[header,filtersRow,bodyEl,footer]);
+  const overlay=mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
+
+  // ─ Construire les cartes bureaux
   const deskCards=S.deskBookings.map(bk=>{
     const isPendingB=bk.status==="pending";
     const d=new Date(bk.date+"T12:00:00");
@@ -3954,7 +4047,6 @@ function buildRequestsAdminModal(){
           ev.target.disabled=true;ev.target.textContent="…";
           await _sb.from("desk_bookings").update({status:"approved"}).eq("id",bk.id);
           S.deskBookings=S.deskBookings.map(x=>x.id===bk.id?{...x,status:"approved"}:x);
-          // Commentaire dans teamEvents (ligne commentaires libres de l'équipe)
           const note=`🏢 ${bk.visitor_email}${bk.comment?" – "+bk.comment:""}`;
           const evKey=`${bk.team}|${bk.date}`;
           const existing=S.teamEvents[evKey]||"";
@@ -3993,28 +4085,30 @@ function buildRequestsAdminModal(){
       bk.comment?mk("p","",{style:{margin:"2px 0 0",fontSize:"11px",color:"#9ca3af"}},[bk.comment]):null,
       ...(btnsB?[btnsB]:[]),
     ].filter(Boolean));
-    return{card,created_at:bk.created_at,isPending:isPendingB};
+    return{card,created_at:bk.created_at,isPending:isPendingB,team:bk.team};
   });
 
-  // Fusionner congés + bureaux, trier chronologique (pending en premier, puis date desc)
-  const congesCards=rows.map(card=>({card,created_at:null,isPending:card.style?.background==="#fffbeb"}));
-  const allCards=[
-    ...sorted.map((req,i)=>({card:rows[i],created_at:req.created_at,isPending:req.status==="pending"})),
-    ...deskCards,
+  // Remplir les cartes (après que bodyEl soit dans le DOM virtuel)
+  const allCardsWithMeta=[
+    ...sorted.map((req,i)=>({
+      card:rows[i],
+      created_at:req.created_at,
+      isPending:req.status==="pending",
+      type:"conge",
+      filterKey:(req.member_name||"").toLowerCase(),
+    })),
+    ...deskCards.map(x=>({...x,type:"bureau",filterKey:(x.team||"").toLowerCase()})),
   ].sort((a,b)=>{
     if(a.isPending&&!b.isPending)return -1;
     if(!a.isPending&&b.isPending)return 1;
     return new Date(b.created_at||0)-new Date(a.created_at||0);
   });
 
-  const bodyContent=allCards.length===0
-    ?[mk("p","",{style:{color:"#6b7280",fontStyle:"italic",padding:"12px 0"}},["Aucune demande."])]
-    :allCards.map(x=>x.card);
+  // Remplacer allCards par allCardsWithMeta pour applyFilters
+  const allCards=allCardsWithMeta;
+  applyFilters();
 
-  const body=mk("div","",{style:{maxHeight:"65vh",overflowY:"auto"}},bodyContent);
-  const footer=mk("div","mfooter",[mk("button","btn",{onClick:close},["Fermer"])]);
-  const box=mk("div","modal",{style:{maxWidth:"420px",width:"95%"}},[title,body,footer]);
-  return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
+  return overlay;
 }
 
 // ─── CALCUL BUREAUX DISPONIBLES ───────────────────────────────────────────────
