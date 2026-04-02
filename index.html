@@ -213,13 +213,19 @@ input:focus,select:focus{border-color:#93c5fd;background:#fff}
 
 <div id="ls">
   <div class="lc">
-    <div class="ll">Planning équipe</div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:4px">
+      <img id="ls-logo" style="max-height:48px;max-width:100px;object-fit:contain;display:none">
+      <div class="ll" id="ls-app-name">Planning équipe</div>
+    </div>
     <div class="ls2" id="ls-title">Connectez-vous pour accéder</div>
     <input type="email" id="lem" placeholder="Email" autocomplete="email">
     <input type="password" id="lpw" placeholder="Mot de passe" autocomplete="current-password">
     <input type="password" id="lpw2" placeholder="Confirmer le mot de passe" style="display:none">
     <button class="lb" id="lbtn">Se connecter</button>
     <div class="le" id="lerr"></div>
+    <div id="ls-forgot" style="margin-top:10px;font-size:12px">
+      <a href="#" id="ls-forgot-link" style="color:#94a3b8;text-decoration:none" onmouseover="this.style.color='#1e3a5f'" onmouseout="this.style.color='#94a3b8'">Mot de passe oublié ?</a>
+    </div>
   </div>
 </div>
 <div id="app" style="display:none"></div>
@@ -3312,6 +3318,13 @@ async function logout(){
   if(btn){btn.textContent="Se connecter";btn.disabled=false;}
   if(err)err.textContent="";
   if(title)title.textContent="Connectez-vous pour accéder";
+  // Restaurer la visibilité logo/nom
+  const logo=document.getElementById("ls-logo");
+  const appName=document.getElementById("ls-app-name");
+  if(logo&&logo.src&&logo.src!==window.location.href){
+    logo.style.display="block";
+    if(appName)appName.style.display="none";
+  }
   if(em)em.focus();
 }
 
@@ -3321,16 +3334,47 @@ async function logout(){
   s.src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js";
   s.onload=async function(){
     await _initSB();
-    // Vérifier d'abord si on a un token d'invitation dans l'URL
     await _checkInviteToken();
-    if(_inviteMode)return; // mode invitation → ne pas vérifier la session
+    if(_inviteMode)return;
     const{data:{session}}=await _sb.auth.getSession();
+    // Charger le logo depuis Supabase settings pour l'afficher sur la page de connexion
+    try{
+      const{data:st}=await _sb.from("settings").select("value").eq("key","main").single();
+      if(st?.value?.logoDataUrl){
+        const img=document.getElementById("ls-logo");
+        if(img){img.src=st.value.logoDataUrl;img.style.display="block";}
+        const nm=document.getElementById("ls-app-name");
+        if(nm)nm.style.display=st.value.logoDataUrl?"none":"block";
+      }
+    }catch(e){}
     if(session&&session.user){_showApp(session.user);}
-    // else: login screen already visible
   };
   s.onerror=function(){document.getElementById("lerr").textContent="Impossible de charger le service d'authentification.";};
   document.head.appendChild(s);
 })();
+
+// ─── MOT DE PASSE OUBLIÉ ──────────────────────────────────────────────────────
+document.getElementById("ls-forgot-link").addEventListener("click",async function(e){
+  e.preventDefault();
+  const email=document.getElementById("lem").value.trim();
+  const errDiv=document.getElementById("lerr");
+  errDiv.textContent="";
+  if(!email||!email.includes("@")){
+    errDiv.textContent="Saisissez votre email ci-dessus puis cliquez sur ce lien.";
+    document.getElementById("lem").focus();
+    return;
+  }
+  await _initSB();
+  const{error}=await _sb.auth.resetPasswordForEmail(email,{
+    redirectTo:window.location.origin+window.location.pathname,
+  });
+  if(error){errDiv.textContent="Erreur : "+error.message;}
+  else{
+    errDiv.style.color="#16a34a";
+    errDiv.textContent="Email envoyé ! Vérifiez votre boîte mail.";
+    setTimeout(()=>{errDiv.style.color="#dc2626";errDiv.textContent="";},5000);
+  }
+});
 
 // ─── IMPORT M-WORK ────────────────────────────────────────────────────────────
 // IDs m-work → codes activité notre app
