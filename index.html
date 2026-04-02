@@ -412,6 +412,7 @@ let S={
   undoStack:[],       // [{keys:[...], before:{key:{act,comment}|null}}] max 20
   // Réservations bureaux
   deskBookings:[],    // chargées depuis Supabase
+  planningDetail:[],  // détail horaire m-work (lecture seule)
 };
 
 function getMonday(d){const r=new Date(d);r.setHours(0,0,0,0);const w=r.getDay();r.setDate(r.getDate()-(w===0?6:w-1));return r;}
@@ -459,6 +460,11 @@ async function loadState(){
     // Réservations bureaux visiteurs
     const{data:dbk}=await _sb.from("desk_bookings").select("*").order("created_at",{ascending:false});
     if(dbk)S.deskBookings=dbk;
+    // Détail horaire m-work (chargé sans bloquer si table vide)
+    try{
+      const{data:pd}=await _sb.from("planning_detail").select("member_id,date,start_time,end_time,activity_name,activity_code,activity_color").limit(50000);
+      if(pd)S.planningDetail=pd;
+    }catch(e){}
   }catch(e){console.warn("Supabase loadState error:",e);}
   _fixSettings();
 }
@@ -966,6 +972,7 @@ function render(){
   if(S.modal==="importMwork") app.appendChild(buildImportMworkModal());
   if(S.modal==="requestBasket") app.appendChild(buildRequestBasketModal());
   if(S.modal==="requestsAdmin") app.appendChild(buildRequestsAdminModal());
+  if(S.modal==="dayDetail")    app.appendChild(buildDayDetailModal());
 }
 
 // ─── TOP BAR ─────────────────────────────────────────────────────────────────
@@ -1344,6 +1351,11 @@ function buildWeekGrid(){
     th.textContent=DAYS_FULL[d.getDay()]+" "+d.getDate()+"/"+(d.getMonth()+1);
     if(hol)th.title=getHolidayName(d);
     else if(vac)th.title="Vacances scolaires (zone "+(S.settings.schoolZone||"C")+")";
+    // Clic sur date → popup détail journée
+    if(S.planningDetail&&S.planningDetail.length>0){
+      th.style.cursor="pointer";
+      th.addEventListener("click",()=>{S._detailDate=fmtDate(d);S.modal="dayDetail";render();});
+    }
     r1.appendChild(th);
   });
   const r2=thead.insertRow();
@@ -3731,8 +3743,9 @@ function buildImportMworkModal(){
           // Reconstruire mwData avec les users fusionnés
           baseData.json.planner.users=mergedUsers;
           mw.mwData=baseData;
-          // Stocker les demandes globales (retournées par le proxy)
           mw.timeOffRequests=baseData.timeOffRequestList||[];
+          // Catalogue d'activités (id → {name, color, code})
+          mw.activityCatalog=Object.assign(mw.activityCatalog||{},baseData.activityCatalog||{});
           mw.yearMode?mw.importLabel=`Année ${mw.year}`:mw.importLabel=`${months[0].slice(0,7)}`;
 
           // Mapping membres
@@ -3860,6 +3873,46 @@ function buildImportMworkModal(){
             await _sb.from("planning").upsert(rows.slice(i,i+chunkSize),{onConflict:"key"});
           }
           Object.entries(allEntries).forEach(([key,v])=>{S.planning[key]=v;});
+
+          // Sauvegarder le détail horaire (planning_detail)
+          ev.target.textContent="Détail…";
+          const catalog=mw.activityCatalog||{};
+          const detailRows=[];
+          mapped.forEach(m=>{
+            (m.mwUser.activities||[]).forEach(a=>{
+              if(!a.startDate||!a.activityId)return;
+              const date=a.startDate.slice(0,10);
+              const startH=new Date(a.startDate).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit",timeZone:"Europe/Paris"});
+              const endH=new Date(a.endDate).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit",timeZone:"Europe/Paris"});
+              const cat=catalog[a.activityId]||{};
+              detailRows.push({
+                member_id:m.ourMember.id,
+                date,
+                start_time:startH,
+                end_time:endH,
+                activity_id:a.activityId,
+                activity_name:cat.name||"",
+                activity_code:cat.code||"",
+                activity_color:cat.color||"",
+              });
+            });
+          });
+          // Supprimer les anciennes lignes pour ces membres/dates puis réinsérer
+          const detailDates=[...new Set(detailRows.map(r=>r.date))];
+          const detailMembers=[...new Set(detailRows.map(r=>r.member_id))];
+          if(detailDates.length>0){
+            for(const mid of detailMembers){
+              await _sb.from("planning_detail").delete()
+                .eq("member_id",mid)
+                .gte("date",detailDates[0])
+                .lte("date",detailDates[detailDates.length-1]);
+            }
+          }
+          for(let i=0;i<detailRows.length;i+=chunkSize){
+            await _sb.from("planning_detail").insert(detailRows.slice(i,i+chunkSize));
+          }
+          S.planningDetail=detailRows; // cache local
+
           S._mwState=null;S.modal=null;render();
         }catch(err){
           errEl.textContent="Erreur import : "+(err.message||err);
@@ -4190,6 +4243,105 @@ function buildRequestsAdminModal(){
   applyFilters();
 
   return overlay;
+}
+
+// ─── MODAL DÉTAIL JOURNÉE ─────────────────────────────────────────────────────
+function buildDayDetailModal(){
+  const close=()=>{S.modal=null;S._detailDate=null;render();};
+  const date=S._detailDate;
+  if(!date){close();return mk("div");}
+  const d=new Date(date+"T12:00:00");
+  const dateLabel=`${DAYS_FULL[d.getDay()]} ${d.getDate()} ${MONTHS_FULL[d.getMonth()]} ${d.getFullYear()}`;
+
+  // Sélecteur d'équipe
+  if(!S._detailTeam)S._detailTeam=getTeams()[0]||"";
+  const teams=getTeams();
+
+  const teamSel=document.createElement("select");
+  teamSel.style.cssText="padding:5px 8px;font-size:12px;border:0.5px solid #d1d5db;border-radius:6px;outline:none;background:#fafafa;margin-bottom:12px;width:100%";
+  teams.forEach(t=>{
+    const o=document.createElement("option");o.value=t;o.textContent=t;
+    if(t===S._detailTeam)o.selected=true;
+    teamSel.appendChild(o);
+  });
+  teamSel.addEventListener("change",()=>{S._detailTeam=teamSel.value;rebuildContent();});
+
+  // Couleur hex sans alpha
+  const hexColor=(c)=>{
+    if(!c)return"#e5e7eb";
+    const h=c.replace(/33$/,"").replace(/^#/,"");
+    return"#"+h;
+  };
+
+  // Conteneur des lignes membres
+  const content=document.createElement("div");
+  content.style.cssText="max-height:65vh;overflow-y:auto";
+
+  function rebuildContent(){
+    content.innerHTML="";
+    const members=S.members.filter(m=>m.team===S._detailTeam);
+    if(members.length===0){
+      content.appendChild(mk("p","",{style:{color:"#6b7280",fontStyle:"italic",padding:"12px 0"}},["Aucun membre dans cette équipe."]));
+      return;
+    }
+
+    let hasAny=false;
+    members.forEach(m=>{
+      const acts=(S.planningDetail||[]).filter(r=>r.member_id===m.id&&r.date===date)
+        .sort((a,b)=>a.start_time.localeCompare(b.start_time));
+      if(acts.length===0)return;
+      hasAny=true;
+
+      const memberBlock=mk("div","",{style:{marginBottom:"12px",borderRadius:"8px",border:"1px solid #e5e7eb",overflow:"hidden"}});
+
+      // En-tête membre
+      const hdrM=mk("div","",{style:{background:"#f8fafc",padding:"6px 10px",fontWeight:"600",fontSize:"12px",color:"#1e3a5f",borderBottom:"1px solid #e5e7eb"}},[m.name]);
+      memberBlock.appendChild(hdrM);
+
+      // Créneaux
+      acts.forEach(a=>{
+        const color=hexColor(a.activity_color);
+        const row=mk("div","",{style:{display:"flex",alignItems:"center",gap:"8px",padding:"5px 10px",borderBottom:"1px solid #f3f4f6"}});
+
+        // Barre colorée
+        const bar=mk("div","",{style:{width:"4px",height:"28px",borderRadius:"2px",background:color,flexShrink:"0"}});
+
+        // Heure
+        const time=mk("div","",{style:{fontSize:"11px",color:"#6b7280",minWidth:"96px",fontVariantNumeric:"tabular-nums"}},[
+          `${a.start_time} → ${a.end_time}`
+        ]);
+
+        // Activité
+        const actEl=mk("div","",{style:{fontSize:"12px",color:"#374151",flex:"1"}},[
+          mk("span","",{style:{
+            display:"inline-block",padding:"1px 6px",borderRadius:"4px",fontSize:"11px",fontWeight:"600",
+            background:color+"33",color:color,marginRight:"5px"
+          }},[a.activity_code||"?"]),
+          a.activity_name||"",
+        ]);
+
+        row.appendChild(bar);row.appendChild(time);row.appendChild(actEl);
+        memberBlock.appendChild(row);
+      });
+
+      content.appendChild(memberBlock);
+    });
+
+    if(!hasAny){
+      content.appendChild(mk("p","",{style:{color:"#6b7280",fontStyle:"italic",padding:"12px 0"}},
+        ["Aucun détail disponible pour cette équipe ce jour — lancez un import m-work."]));
+    }
+  }
+
+  rebuildContent();
+
+  const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"8px"}},[
+    mk("h3","",{style:{margin:0,fontSize:"14px"}},[`📅 ${dateLabel}`]),
+    mk("button","mclose",{onClick:close},["×"]),
+  ]);
+
+  const box=mk("div","modal",{style:{maxWidth:"460px",width:"95%"}},[hdr,teamSel,content]);
+  return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
 }
 
 // ─── CALCUL BUREAUX DISPONIBLES ───────────────────────────────────────────────
