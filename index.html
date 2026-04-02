@@ -230,6 +230,18 @@ input:focus,select:focus{border-color:#93c5fd;background:#fff}
 </div>
 <div id="app" style="display:none"></div>
 <script>
+// Afficher le logo immédiatement depuis localStorage (avant tout chargement)
+(function(){
+  try{
+    const logo=localStorage.getItem("cadence31_logo");
+    if(logo){
+      const img=document.getElementById("ls-logo");
+      const nm=document.getElementById("ls-app-name");
+      if(img){img.src=logo;img.style.display="block";}
+      if(nm)nm.style.display="none";
+    }
+  }catch(e){}
+})();
 // ─── ACTIVITÉS DE BASE (hors lieux personnalisés) ─────────────────────────────
 // ─── POSTES ───────────────────────────────────────────────────────────────────
 const POSTES=[
@@ -989,6 +1001,8 @@ function buildTopBar(){
             const reader=new FileReader();
             reader.onload=e=>{
               S.settings.logoDataUrl=e.target.result;
+              // Sauvegarder aussi en localStorage pour affichage sur la page de login
+              try{localStorage.setItem("cadence31_logo",e.target.result);}catch(err){}
               persist();render();
             };
             reader.readAsDataURL(file);
@@ -3346,11 +3360,23 @@ async function logout(){
 })();
 
 async function _loadLoginLogo(){
+  // D'abord depuis localStorage (instantané, pas besoin d'être connecté)
   try{
-    const{data:st,error}=await _sb.from("settings").select("value").eq("key","main").single();
-    if(error||!st)return;
-    const logoUrl=st.value?.logoDataUrl;
+    const cached=localStorage.getItem("cadence31_logo");
+    if(cached){
+      const img=document.getElementById("ls-logo");
+      const nm=document.getElementById("ls-app-name");
+      if(img){img.src=cached;img.style.display="block";}
+      if(nm)nm.style.display="none";
+      return;
+    }
+  }catch(e){}
+  // Sinon depuis Supabase (peut échouer si RLS bloque les anonymes)
+  try{
+    const{data:st}=await _sb.from("settings").select("value").eq("key","main").single();
+    const logoUrl=st?.value?.logoDataUrl;
     if(logoUrl){
+      try{localStorage.setItem("cadence31_logo",logoUrl);}catch(e){}
       const img=document.getElementById("ls-logo");
       const nm=document.getElementById("ls-app-name");
       if(img){img.src=logoUrl;img.style.display="block";}
