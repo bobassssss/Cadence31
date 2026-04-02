@@ -3334,24 +3334,30 @@ async function logout(){
   s.src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js";
   s.onload=async function(){
     await _initSB();
+    // Charger le logo AVANT tout (indépendamment de la session)
+    await _loadLoginLogo();
     await _checkInviteToken();
     if(_inviteMode)return;
     const{data:{session}}=await _sb.auth.getSession();
-    // Charger le logo depuis Supabase settings pour l'afficher sur la page de connexion
-    try{
-      const{data:st}=await _sb.from("settings").select("value").eq("key","main").single();
-      if(st?.value?.logoDataUrl){
-        const img=document.getElementById("ls-logo");
-        if(img){img.src=st.value.logoDataUrl;img.style.display="block";}
-        const nm=document.getElementById("ls-app-name");
-        if(nm)nm.style.display=st.value.logoDataUrl?"none":"block";
-      }
-    }catch(e){}
     if(session&&session.user){_showApp(session.user);}
   };
   s.onerror=function(){document.getElementById("lerr").textContent="Impossible de charger le service d'authentification.";};
   document.head.appendChild(s);
 })();
+
+async function _loadLoginLogo(){
+  try{
+    const{data:st,error}=await _sb.from("settings").select("value").eq("key","main").single();
+    if(error||!st)return;
+    const logoUrl=st.value?.logoDataUrl;
+    if(logoUrl){
+      const img=document.getElementById("ls-logo");
+      const nm=document.getElementById("ls-app-name");
+      if(img){img.src=logoUrl;img.style.display="block";}
+      if(nm)nm.style.display="none";
+    }
+  }catch(e){}
+}
 
 // ─── MOT DE PASSE OUBLIÉ ──────────────────────────────────────────────────────
 document.getElementById("ls-forgot-link").addEventListener("click",async function(e){
