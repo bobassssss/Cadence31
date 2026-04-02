@@ -1377,7 +1377,7 @@ function buildMonthGrid(){
     return{d,slots:getDaySlots(d)};
   }).filter(Boolean);
   const todayStr=fmtDate(new Date());
-  const teams=getTeams().filter(t=>S.activeTeam==="all"||t===S.activeTeam);
+  const teams=getTeams().filter(t=>S.activeTeams.size===0||S.activeTeams.has(t));
   const selCells=S.drag?S.drag.cells:S.actCells;
   const ACTS=buildACTS();
   const table=document.createElement("table");
@@ -3212,11 +3212,16 @@ function _showApp(user){
   _auth.isAdmin=(user.email===_ADM);
   _auth.isVisitor=(user.email===_VISITOR_EMAIL);
   _auth.memberId=null;
-  _loadTeamFilter(); // restaurer le filtre équipes
   document.getElementById("ls").style.display="none";
   document.getElementById("app").style.display="";
   loadState().then(()=>{
     _auth.memberId=_findMember(user.email);
+    // Restaurer le filtre équipes APRÈS chargement des membres
+    // (les noms d'équipes doivent exister pour valider la sélection)
+    _loadTeamFilter();
+    // Nettoyer les équipes qui n'existent plus
+    const validTeams=new Set(getTeams());
+    for(const t of [...S.activeTeams]){if(!validTeams.has(t))S.activeTeams.delete(t);}
     render();
   });
 }
