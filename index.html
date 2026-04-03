@@ -981,6 +981,7 @@ function render(){
   if(S.modal==="clearData") app.appendChild(buildClearModal());
   if(S.modal==="crcDashboard") app.appendChild(buildCRCDashboard());
   if(S.modal==="importMwork") app.appendChild(buildImportMworkModal());
+  if(S.modal==="triggerImport") app.appendChild(buildTriggerImportModal());
   if(S.modal==="requestBasket") app.appendChild(buildRequestBasketModal());
   if(S.modal==="requestsAdmin") app.appendChild(buildRequestsAdminModal());
   if(S.modal==="dayDetail")    app.appendChild(buildDayDetailModal());
@@ -3485,6 +3486,7 @@ const MW_ACT_MAP={
 const MW_PLANNER_ID="69aea462646ef8fbf8ebd9ee";
 const MW_COMPANY_ID="693042e16ec252fe0f990934";
 const MW_PROXY_URL="https://cadence31.vercel.app/api/mwork-proxy";
+const MW_TRIGGER_URL="https://cadence31.vercel.app/api/mwork-trigger";
 
 // Normalise un nom pour la comparaison floue
 function _normName(s){return(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();}
@@ -3656,6 +3658,73 @@ function _processTimeOffRequest(r, mwUserId, addEntryFn){
     }
     d.setDate(d.getDate()+1);
   }
+}
+
+// ─── MODAL IMPORT AUTOMATIQUE (via MacroDroid) ───────────────────────────────
+function buildTriggerImportModal(){
+  const close=()=>{S.modal=null;render();};
+  const errEl=mk("p","",{style:{color:"#ef4444",fontSize:"12px",minHeight:"16px",margin:"4px 0 0"}});
+  const statusEl=mk("p","",{style:{color:"#16a34a",fontSize:"12px",minHeight:"16px",margin:"4px 0 0"}});
+
+  // Champ secret
+  const secretInp=mk("input","",{type:"password",placeholder:"Secret Vercel (MWORK_TRIGGER_SECRET)",
+    style:{width:"100%",padding:"8px",boxSizing:"border-box",border:"1px solid #d1d5db",borderRadius:"6px",fontSize:"13px"}});
+  // Champ cookie
+  const cookieInp=mk("textarea","",{placeholder:"Collez le cookie m-work ici…",
+    style:{width:"100%",height:"80px",padding:"8px",boxSizing:"border-box",border:"1px solid #d1d5db",borderRadius:"6px",fontSize:"11px",fontFamily:"monospace",resize:"vertical"}});
+  // Champ période
+  const periodInp=mk("input","",{type:"text",placeholder:"Ex : 2026 / avril / mars-juin",
+    style:{width:"100%",padding:"8px",boxSizing:"border-box",border:"1px solid #d1d5db",borderRadius:"6px",fontSize:"13px"}});
+
+  const btnTest=mk("button","btn",{
+    style:{background:"#2563eb",color:"#fff",flex:"1"},
+    onClick:async()=>{
+      const secret=secretInp.value.trim();
+      const cookie=cookieInp.value.trim();
+      if(!secret||!cookie){errEl.textContent="Renseignez le secret et le cookie.";return;}
+      btnTest.disabled=true;btnTest.textContent="Test…";errEl.textContent="";statusEl.textContent="";
+      try{
+        const resp=await fetch(MW_TRIGGER_URL,{
+          method:"POST",
+          headers:{"Content-Type":"application/json","Authorization":`Bearer ${secret}`},
+          body:JSON.stringify({cookie,subject:"import mwork "+(periodInp.value.trim()||"mois courant")}),
+        });
+        const data=await resp.json();
+        if(!resp.ok)throw new Error(data.error||resp.status);
+        statusEl.textContent=`✓ ${data.message}`;
+        btnTest.textContent="Test OK";
+      }catch(e){
+        errEl.textContent="Erreur : "+e.message;
+        btnTest.disabled=false;btnTest.textContent="Tester";
+      }
+    }
+  },["Tester"]);
+
+  const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
+    mk("h3","",{style:{margin:0}},["⚡ Import automatique"]),
+    mk("button","mclose",{onClick:close},["×"]),
+  ]);
+
+  const info=mk("div","info-box",{style:{marginBottom:"12px",fontSize:"12px"}},[
+    mk("p","",{style:{margin:"0 0 4px",fontWeight:"600"}},["Configuration MacroDroid"]),
+    mk("p","",{style:{margin:"0 0 2px"}},["1. Envoyez un mail à 3cadence1@gmail.com"]),
+    mk("p","",{style:{margin:"0 0 2px"}},["2. Sujet : import mwork 2026 (ou avril, mars-juin…)"]),
+    mk("p","",{style:{margin:"0 0 2px"}},["3. Corps : le cookie m-work"]),
+    mk("p","",{style:{margin:"0"}},["MacroDroid détecte le mail et déclenche l'import automatiquement."]),
+  ]);
+
+  const box=mk("div","modal",{style:{maxWidth:"420px",width:"95%"}},[
+    hdr,info,
+    mk("div","frow",{style:{marginBottom:"8px"}},[mk("label","lf",{},["Secret"]),secretInp]),
+    mk("div","frow",{style:{marginBottom:"8px"}},[mk("label","lf",{},["Cookie m-work"]),cookieInp]),
+    mk("div","frow",{style:{marginBottom:"8px"}},[mk("label","lf",{},["Période"]),periodInp]),
+    errEl,statusEl,
+    mk("div","mfooter",{style:{display:"flex",gap:"8px",marginTop:"12px"}},[
+      mk("button","btn",{onClick:close},["Fermer"]),
+      btnTest,
+    ]),
+  ]);
+  return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
 }
 
 function buildImportMworkModal(){
