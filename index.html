@@ -1763,6 +1763,11 @@ function buildMemberModal(){
     const postVal=inputs.post.value||"";
     const emailVal=inputs.email.value.trim().toLowerCase()||"";
     const oldEmail=m?.email||"";
+    // Si nouvelle équipe, initialiser ses paramètres avec 1 bureau par défaut
+    if(!S.settings.teamSettings)S.settings.teamSettings={};
+    if(rawTeam==="__new__"&&!S.settings.teamSettings[teamVal]){
+      S.settings.teamSettings[teamVal]={bureauxFixes:1,openSpace:false,postesTotal:null};
+    }
     if(m)S.members=S.members.map(x=>x.id===m.id?{...x,name:nm,team:teamVal,post:postVal||x.post,email:emailVal}:x);
     else S.members.push({id:"m"+Date.now(),name:nm,team:teamVal,post:postVal,email:emailVal});
     persist();
