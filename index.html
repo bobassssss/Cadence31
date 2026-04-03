@@ -1180,16 +1180,16 @@ document.addEventListener("mouseup",()=>{
 });
 function makeTdPost(member){
   const td=document.createElement("td");td.className="td-post";
+  const abbr=posteAbbr(member.post||"");
+  const span=document.createElement("span");
+  span.style.cssText="font-size:10px;color:#374151;padding:2px;display:block;text-align:center";
+  span.textContent=abbr;
   // Surbrillance du collaborateur connecté
   if(_auth.memberId&&member.id===_auth.memberId){
     td.style.background="#dbeafe";
     span.style.fontWeight="700";
     span.style.color="#1d4ed8";
   }
-  const abbr=posteAbbr(member.post||"");
-  const span=document.createElement("span");
-  span.style.cssText="font-size:10px;color:#374151;padding:2px;display:block;text-align:center";
-  span.textContent=abbr;
   td.appendChild(span);
   if(!isAdmin())return td;
   // Admin : clic sur la cellule ouvre un select inline
