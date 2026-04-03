@@ -1368,6 +1368,11 @@ function buildWeekGrid(){
       tbody.appendChild(makeCoverageRow(team,workDays));
       S.members.filter(m=>m.team===team).forEach(member=>{
         const tr=tbody.insertRow();
+        if(_auth.memberId&&member.id===_auth.memberId){
+          tr.style.background="#eff6ff";
+          tr.style.outline="2px solid #3b82f6";
+          tr.style.outlineOffset="-1px";
+        }
         tr.appendChild(makeTdName(member));tr.appendChild(makeTdPost(member));
       workDays.forEach(({d,slots})=>{
         slots.forEach(slot=>{
@@ -1471,6 +1476,7 @@ function buildMonthGrid(){
     });
     S.members.filter(m=>m.team===team).forEach(member=>{
       const tr=tbody.insertRow();
+      if(_auth.memberId&&member.id===_auth.memberId){tr.style.background="#eff6ff";tr.style.outline="2px solid #3b82f6";tr.style.outlineOffset="-1px";}
       tr.appendChild(makeTdName(member));tr.appendChild(makeTdPost(member));
       workDays.forEach(({d,slots})=>{
         const keyAM=member.id+"|"+fmtDate(d)+"|AM";
@@ -4181,10 +4187,10 @@ function buildRequestsAdminModal(){
           ev.target.disabled=true;ev.target.textContent="…";
           await _sb.from("desk_bookings").update({status:"approved"}).eq("id",bk.id);
           S.deskBookings=S.deskBookings.map(x=>x.id===bk.id?{...x,status:"approved"}:x);
-          const note=`🏢 ${bk.visitor_email}${bk.comment?" – "+bk.comment:""}`;
+          const visitorName=bk.visitor_email.split("@")[0]; const note=`🏢 ${visitorName}${bk.comment?" – "+bk.comment:""}`;
           const evKey=`${bk.team}|${bk.date}`;
           const existing=S.teamEvents[evKey]||"";
-          if(!existing.includes(bk.visitor_email)){
+          if(!existing.includes(visitorName)){
             S.teamEvents[evKey]=existing?`${existing} · ${note}`:note;
             persist();
           }
