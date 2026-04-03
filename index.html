@@ -4479,14 +4479,14 @@ function buildVisitorView(){
 
   teams.forEach(team=>{
     const ts=S.settings.teamSettings?.[team]||{};
-    if(ts.bureauxFixes==null)return;
+    const bureauxFixes=ts.bureauxFixes??0;
 
     const card=mk("div","",{style:{marginBottom:"16px",borderRadius:"10px",border:"1px solid #e5e7eb",overflow:"hidden"}});
 
     const hdr=mk("div","",{style:{background:"#1e3a5f",color:"#fff",padding:"8px 12px",fontWeight:"600",fontSize:"13px"}},[
       team,
       mk("span","",{style:{fontSize:"10px",fontWeight:"normal",marginLeft:"8px",opacity:"0.8"}},[
-        `${ts.bureauxFixes} bureau${ts.bureauxFixes>1?"x":""} fermé${ts.bureauxFixes>1?"s":""}${ts.openSpace?" + open space":""}`
+        `${bureauxFixes} bureau${bureauxFixes>1?"x":""} fermé${bureauxFixes>1?"s":""}${ts.openSpace?" + open space":""}`
       ]),
     ]);
     card.appendChild(hdr);
