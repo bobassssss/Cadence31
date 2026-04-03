@@ -948,7 +948,12 @@ function render(){
   const app=document.getElementById("app");
   app.innerHTML="";
   // Vue visiteur — interface dédiée réservation bureaux
-  if(isVisitor()){buildVisitorView();return;}
+  if(isVisitor()){
+    buildVisitorView();
+    if(S.modal==="deskBooking") app.appendChild(buildDeskBookingModal());
+    if(S.modal==="navPicker")   app.appendChild(buildNavPickerModal());
+    return;
+  }
   // Template editor takes full screen
   if(S.modal==="tplEditor"){app.appendChild(buildTplEditor());return;}
   // Normal planning view
@@ -1063,7 +1068,15 @@ function buildTopBar(){
 
 // ─── CELLULES NOM / POSTE ────────────────────────────────────────────────────
 function makeTdName(member){
+  const isMe=_auth.memberId&&member.id===_auth.memberId;
   const td=mk("td","td-name",{title:"Appui long pour modifier"});
+  if(isMe){td.style.background="#dbeafe";td.style.borderLeft="3px solid #2563eb";td.style.fontWeight="700";}
+  // Surbrillance du collaborateur connecté
+  if(_auth.memberId&&member.id===_auth.memberId){
+    td.style.background="#dbeafe";
+    td.style.borderLeft="3px solid #2563eb";
+    td.style.fontWeight="600";
+  }
   // Poignée de réordonnancement (admin uniquement)
   if(isAdmin()){
     const handle=document.createElement("span");
@@ -1167,6 +1180,12 @@ document.addEventListener("mouseup",()=>{
 });
 function makeTdPost(member){
   const td=document.createElement("td");td.className="td-post";
+  // Surbrillance du collaborateur connecté
+  if(_auth.memberId&&member.id===_auth.memberId){
+    td.style.background="#dbeafe";
+    span.style.fontWeight="700";
+    span.style.color="#1d4ed8";
+  }
   const abbr=posteAbbr(member.post||"");
   const span=document.createElement("span");
   span.style.cssText="font-size:10px;color:#374151;padding:2px;display:block;text-align:center";
@@ -4437,7 +4456,6 @@ function buildVisitorView(){
   }).filter(({d})=>!isHoliday(d));
 
   const app=document.getElementById("app");
-  app.innerHTML="";
 
   // Topbar visiteur
   const tue=addDays(weekStart,1),sat=addDays(weekStart,5);
@@ -4520,11 +4538,11 @@ function buildVisitorView(){
       } else if(avail===1){
         td.textContent="1";td.style.background="#fef3c7";td.style.color="#92400e";
         td.style.cursor="pointer";
-        td.addEventListener("click",()=>buildDeskBookingModal(team,d,slot,avail));
+        td.addEventListener("click",()=>{S._deskBooking={team,date:fmtDate(d),slot,avail};S.modal="deskBooking";render();});
       } else {
         td.textContent=String(avail);td.style.background="#dcfce7";td.style.color="#166534";
         td.style.cursor="pointer";
-        td.addEventListener("click",()=>buildDeskBookingModal(team,d,slot,avail));
+        td.addEventListener("click",()=>{S._deskBooking={team,date:fmtDate(d),slot,avail};S.modal="deskBooking";render();});
       }
       tr.appendChild(td);
     }));
@@ -4552,25 +4570,21 @@ function buildVisitorView(){
 
   app.appendChild(wrap);
   app.appendChild(mk("p","hint",{},["Cliquez sur un créneau vert ou orange pour demander un bureau."]));
-
-  // Afficher navPicker si demandé
-  if(S.modal==="navPicker") app.appendChild(buildNavPickerModal());
 }
 
 // ─── MODAL RÉSERVATION BUREAU (visiteur) ──────────────────────────────────────
-function buildDeskBookingModal(team,d,slot,avail){
-  const dateStr=fmtDate(d);
+function buildDeskBookingModal(){
+  const b=S._deskBooking||{};
+  const {team,date:dateStr,slot,avail}=b;
+  const close=()=>{S.modal=null;S._deskBooking=null;render();};
+  if(!team){close();return mk("div");}
+  const d=new Date(dateStr+"T12:00:00");
   const slotLbl=slot==="AM"?"Matin":"Après-midi";
   const dayLbl=`${DAYS_FULL[d.getDay()]} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
-
-  const overlay=mk("div","overlay");
-  const box=mk("div","modal",{style:{maxWidth:"340px"}});
 
   const emailInp=mk("input","",{type:"email",placeholder:"votre@email.fr",style:{width:"100%",marginBottom:"8px"}});
   const commentInp=mk("input","",{type:"text",placeholder:"Motif (optionnel)",style:{width:"100%"}});
   const errEl=mk("p","",{style:{color:"#ef4444",fontSize:"12px",minHeight:"16px",margin:"4px 0 0"}});
-
-  const close=()=>{overlay.remove();};
 
   const btnSend=mk("button","btn",{
     style:{background:"#2563eb",color:"#fff",flex:"1"},
@@ -4601,6 +4615,7 @@ function buildDeskBookingModal(team,d,slot,avail){
     }
   },["Envoyer la demande"]);
 
+  const box=mk("div","modal",{style:{maxWidth:"340px"}});
   box.appendChild(mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
     mk("h3","",{style:{margin:0}},["📋 Réserver un bureau"]),
     mk("button","mclose",{onClick:close},["×"]),
@@ -4617,10 +4632,7 @@ function buildDeskBookingModal(team,d,slot,avail){
     mk("button","btn",{onClick:close},["Annuler"]),
     btnSend,
   ]));
-
-  overlay.appendChild(box);
-  overlay.addEventListener("click",e=>{if(e.target===overlay)close();});
-  document.getElementById("app").appendChild(overlay);
+  return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
 }
 
 // ─── MODAL RÉSERVATIONS ADMIN ─────────────────────────────────────────────────
