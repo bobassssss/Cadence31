@@ -207,6 +207,17 @@ input:focus,select:focus{border-color:#93c5fd;background:#fff}
 .lc input:focus{border-color:#1e3a5f;background:#fff}
 .lb{width:100%;padding:12px;font-size:14px;font-weight:600;border-radius:10px;background:#1e3a5f;color:#fff;border:none;cursor:pointer;font-family:inherit}
 .le{font-size:12px;color:#dc2626;margin-top:8px;min-height:18px}
+@media print{
+  body{background:#fff!important}
+  .topbar,.hint,button,.mclose,.drag-handle,.td-cov-lbl{display:none!important}
+  .grid-wrap{overflow:visible!important;border:none!important;box-shadow:none!important}
+  #app{padding:0!important}
+  table{font-size:9px!important;page-break-inside:auto}
+  tr{page-break-inside:avoid}
+  .td-name{min-width:80px!important;width:80px!important}
+  .td-cell,.th-slot{width:22px!important;min-width:22px!important}
+  .th-name{min-width:80px!important;width:80px!important}
+}
 </style>
 </head>
 <body>
@@ -1056,6 +1067,7 @@ function buildTopBar(){
       btn.appendChild(badge);
       return btn;
     })()]:[]),
+    mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Exporter en PDF",onClick:()=>{const prev=S.modal;S.modal=null;render();setTimeout(()=>{window.print();S.modal=prev;if(prev)render();},100);}},{},["📤"]),
     mk("button","btn",{style:{marginLeft:"auto",padding:"6px 10px",fontSize:"16px"},title:"Quitter",onClick:logout},["🚪"]),
   ]);
   return mk("div","topbar",{},[r1,r2]);
