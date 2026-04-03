@@ -4533,11 +4533,11 @@ function buildVisitorView(){
       } else if(avail===1){
         td.textContent="1";td.style.background="#fef3c7";td.style.color="#92400e";
         td.style.cursor="pointer";
-        td.addEventListener("click",()=>{S._deskBooking={team,date:fmtDate(d),slot,avail};S.modal="deskBooking";render();});
+        td.addEventListener("click",()=>buildDeskBookingModal(team,d,slot,avail));
       } else {
         td.textContent=String(avail);td.style.background="#dcfce7";td.style.color="#166534";
         td.style.cursor="pointer";
-        td.addEventListener("click",()=>{S._deskBooking={team,date:fmtDate(d),slot,avail};S.modal="deskBooking";render();});
+        td.addEventListener("click",()=>buildDeskBookingModal(team,d,slot,avail));
       }
       tr.appendChild(td);
     }));
@@ -4565,24 +4565,20 @@ function buildVisitorView(){
 
   app.appendChild(wrap);
   app.appendChild(mk("p","hint",{},["Cliquez sur un créneau vert ou orange pour demander un bureau."]));
-  // Modals gérés ici pour éviter que render() les efface
-  if(S.modal==="deskBooking") app.appendChild(buildDeskBookingModal());
-  if(S.modal==="navPicker")   app.appendChild(buildNavPickerModal());
 }
 
 // ─── MODAL RÉSERVATION BUREAU (visiteur) ──────────────────────────────────────
-function buildDeskBookingModal(){
-  const b=S._deskBooking||{};
-  const {team,date:dateStr,slot,avail}=b;
-  const close=()=>{S.modal=null;S._deskBooking=null;render();};
-  if(!team){close();return mk("div");}
-  const d=new Date(dateStr+"T12:00:00");
+function buildDeskBookingModal(team,d,slot,avail){
+  const dateStr=fmtDate(d);
   const slotLbl=slot==="AM"?"Matin":"Après-midi";
   const dayLbl=`${DAYS_FULL[d.getDay()]} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
 
   const emailInp=mk("input","",{type:"email",placeholder:"votre@email.fr",style:{width:"100%",marginBottom:"8px"}});
   const commentInp=mk("input","",{type:"text",placeholder:"Motif (optionnel)",style:{width:"100%"}});
   const errEl=mk("p","",{style:{color:"#ef4444",fontSize:"12px",minHeight:"16px",margin:"4px 0 0"}});
+
+  const overlay=document.createElement("div");overlay.className="overlay";
+  const close=()=>overlay.remove();
 
   const btnSend=mk("button","btn",{
     style:{background:"#2563eb",color:"#fff",flex:"1"},
@@ -4630,7 +4626,9 @@ function buildDeskBookingModal(){
     mk("button","btn",{onClick:close},["Annuler"]),
     btnSend,
   ]));
-  return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
+  overlay.appendChild(box);
+  overlay.addEventListener("click",e=>{if(e.target===overlay)close();});
+  document.getElementById("app").appendChild(overlay);
 }
 
 // ─── MODAL RÉSERVATIONS ADMIN ─────────────────────────────────────────────────
