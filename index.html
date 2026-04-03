@@ -4255,16 +4255,40 @@ function buildDayDetailModal(){
 
   // Sélecteur d'équipe
   if(!S._detailTeam)S._detailTeam=getTeams()[0]||"";
+  if(!S.hasOwnProperty("_detailMember"))S._detailMember="all";
   const teams=getTeams();
 
   const teamSel=document.createElement("select");
-  teamSel.style.cssText="padding:5px 8px;font-size:12px;border:0.5px solid #d1d5db;border-radius:6px;outline:none;background:#fafafa;margin-bottom:12px;width:100%";
+  teamSel.style.cssText="padding:5px 8px;font-size:12px;border:0.5px solid #d1d5db;border-radius:6px;outline:none;background:#fafafa;flex:1";
   teams.forEach(t=>{
     const o=document.createElement("option");o.value=t;o.textContent=t;
     if(t===S._detailTeam)o.selected=true;
     teamSel.appendChild(o);
   });
-  teamSel.addEventListener("change",()=>{S._detailTeam=teamSel.value;rebuildContent();});
+
+  const memberSel=document.createElement("select");
+  memberSel.style.cssText="padding:5px 8px;font-size:12px;border:0.5px solid #d1d5db;border-radius:6px;outline:none;background:#fafafa;flex:1";
+
+  const rebuildMemberSel=()=>{
+    memberSel.innerHTML="";
+    const oAll=document.createElement("option");oAll.value="all";oAll.textContent="Tous";
+    memberSel.appendChild(oAll);
+    S.members.filter(m=>m.team===S._detailTeam).forEach(m=>{
+      const o=document.createElement("option");o.value=m.id;o.textContent=m.name;
+      if(m.id===S._detailMember)o.selected=true;
+      memberSel.appendChild(o);
+    });
+    if(S._detailMember!=="all"&&!S.members.find(m=>m.id===S._detailMember&&m.team===S._detailTeam)){
+      memberSel.value="all";S._detailMember="all";
+    }
+  };
+
+  teamSel.addEventListener("change",()=>{S._detailTeam=teamSel.value;S._detailMember="all";rebuildMemberSel();rebuildContent();});
+  memberSel.addEventListener("change",()=>{S._detailMember=memberSel.value;rebuildContent();});
+
+  const filtersRow=mk("div","",{style:{display:"flex",gap:"8px",marginBottom:"12px"}});
+  filtersRow.appendChild(teamSel);filtersRow.appendChild(memberSel);
+  rebuildMemberSel();
 
   // Couleur hex sans alpha
   const hexColor=(c)=>{
@@ -4279,7 +4303,10 @@ function buildDayDetailModal(){
 
   function rebuildContent(){
     content.innerHTML="";
-    const members=S.members.filter(m=>m.team===S._detailTeam);
+    const members=S.members.filter(m=>
+      m.team===S._detailTeam&&
+      (S._detailMember==="all"||m.id===S._detailMember)
+    );
     if(members.length===0){
       content.appendChild(mk("p","",{style:{color:"#6b7280",fontStyle:"italic",padding:"12px 0"}},["Aucun membre dans cette équipe."]));
       return;
@@ -4340,7 +4367,7 @@ function buildDayDetailModal(){
     mk("button","mclose",{onClick:close},["×"]),
   ]);
 
-  const box=mk("div","modal",{style:{maxWidth:"460px",width:"95%"}},[hdr,teamSel,content]);
+  const box=mk("div","modal",{style:{maxWidth:"460px",width:"95%"}},[hdr,filtersRow,content]);
   return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
 }
 
