@@ -945,11 +945,11 @@ function labelToCode(label,idx,allLabels){
 
 // ─── RENDER ───────────────────────────────────────────────────────────────────
 function render(){
-  const app=document.getElementById("app");
+  const frag=document.createDocumentFragment();
   app.innerHTML="";
   // Vue visiteur — interface dédiée réservation bureaux
   if(isVisitor()){
-    buildVisitorView();
+    app.appendChild(buildVisitorView());
     if(S.modal==="deskBooking") app.appendChild(buildDeskBookingModal());
     if(S.modal==="navPicker")   app.appendChild(buildNavPickerModal());
     return;
@@ -4476,7 +4476,7 @@ function buildVisitorView(){
       mk("button","btn",{style:{marginLeft:"auto",padding:"6px 10px",fontSize:"16px"},title:"Quitter",onClick:logout},["🚪"]),
     ]),
   ]);
-  app.appendChild(topbar);
+  frag.appendChild(topbar);
 
   // Tableau par équipe
   const teams=getTeams();
@@ -4568,8 +4568,9 @@ function buildVisitorView(){
     wrap.appendChild(card);
   });
 
-  app.appendChild(wrap);
-  app.appendChild(mk("p","hint",{},["Cliquez sur un créneau vert ou orange pour demander un bureau."]));
+  frag.appendChild(wrap);
+  frag.appendChild(mk("p","hint",{},["Cliquez sur un créneau vert ou orange pour demander un bureau."]));
+  return frag;
 }
 
 // ─── MODAL RÉSERVATION BUREAU (visiteur) ──────────────────────────────────────
