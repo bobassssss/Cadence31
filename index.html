@@ -1068,6 +1068,7 @@ function buildTopBar(){
       btn.appendChild(badge);
       return btn;
     })()]:[]),
+    mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Aide / Signaler un problème",onClick:()=>{window.location.href="mailto:ca.dence@outlook.fr?subject="+encodeURIComponent("[Cadence31] Problème / Question");}},["❓"]),
     mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Exporter en PDF",onClick:()=>{const prev=S.modal;S.modal=null;render();setTimeout(()=>{window.print();S.modal=prev;if(prev)render();},100);}},["📤"]),
     mk("button","btn",{style:{marginLeft:"auto",padding:"6px 10px",fontSize:"16px"},title:"Quitter",onClick:logout},["🚪"]),
   ]);
@@ -2911,6 +2912,16 @@ function buildClearModal(){
         delete S.planning[k];if(_sb)_sb.from("planning").delete().eq("key",k).then(()=>{});count++;
       }
     });
+    // Supprimer aussi le détail horaire m-work
+    if(_sb){
+      const dateFrom=fmtDate(s),dateTo=fmtDate(e);
+      midsToDelete.forEach(mid=>{
+        _sb.from("planning_detail").delete().eq("member_id",mid).gte("date",dateFrom).lte("date",dateTo).then(()=>{});
+      });
+      S.planningDetail=(S.planningDetail||[]).filter(r=>
+        !(midsToDelete.includes(r.member_id)&&r.date>=dateFrom&&r.date<=dateTo)
+      );
+    }
     persist();
     const who=clearTarget==="all"?"tous les collaborateurs":(S.members.find(m=>m.id===clearTarget)?.name||clearTarget);
     alert(`${count} entrée${count>1?"s":""} supprimée${count>1?"s":""} pour ${who}.`);
