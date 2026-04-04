@@ -4426,18 +4426,26 @@ function buildPublishModal(){
   const btnSend=mk("button","btn",{
     style:{background:"#16a34a",color:"#fff",flex:"1"},
     onClick:()=>{
-      // Générer un mailto par membre
-      Object.entries(byMember).forEach(([mid,changes])=>{
+      // Un seul mailto avec tous les destinataires
+      const recipients=Object.entries(byMember)
+        .map(([mid])=>S.members.find(m=>m.id===mid)?.email)
+        .filter(Boolean);
+      if(!recipients.length){alert("Aucune adresse email trouvée pour les collaborateurs concernés.");return;}
+
+      // Corps global avec toutes les modifications par personne
+      const allLines=Object.entries(byMember).map(([mid,changes])=>{
         const member=S.members.find(m=>m.id===mid);
-        if(!member||!member.email)return;
+        if(!member)return"";
         const lines=changes.sort((a,b)=>a.date.localeCompare(b.date)||a.slot.localeCompare(b.slot))
-          .map(e=>`• ${fmtD(e.date)} ${fmtSlot(e.slot)} : ${actLabel(e.actBefore)} → ${actLabel(e.actAfter)}`).join("\n");
-        const subject=encodeURIComponent("[Planning] Mise à jour de votre planning");
-        const body=encodeURIComponent(`Bonjour ${member.name.split(" ")[0]},\n\nVotre planning a été mis à jour :\n\n${lines}\n\nCordialement`);
-        const a=document.createElement("a");
-        a.href=`mailto:${member.email}?subject=${subject}&body=${body}`;
-        a.style.display="none";document.body.appendChild(a);a.click();document.body.removeChild(a);
-      });
+          .map(e=>`  • ${fmtD(e.date)} ${fmtSlot(e.slot)} : ${actLabel(e.actBefore)} → ${actLabel(e.actAfter)}`).join("\n");
+        return `${member.name} :\n${lines}`;
+      }).filter(Boolean).join("\n\n");
+
+      const subject=encodeURIComponent("[Planning] Mise à jour de votre planning");
+      const bodyText=encodeURIComponent(`Bonjour,\n\nVotre planning a été mis à jour :\n\n${allLines}\n\nCordialement`);
+      const a=document.createElement("a");
+      a.href=`mailto:${recipients.join(",")}?subject=${subject}&body=${bodyText}`;
+      a.style.display="none";document.body.appendChild(a);a.click();document.body.removeChild(a);
       S.publishQueue=[];
       close();
     }
