@@ -1065,7 +1065,7 @@ function buildTopBar(){
       })(),
     ]:[]),
     mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Statistiques",onClick:()=>{S.modal="stats";render();}},["📊"]),
-    mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:S.showLegend?"Masquer la légende":"Légende",onClick:()=>{S.showLegend=!S.showLegend;render();}},["🔑"]),
+    mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px",textDecoration:S.showLegend?"none":"line-through"},title:S.showLegend?"Masquer la légende":"Afficher la légende",onClick:()=>{S.showLegend=!S.showLegend;render();}},["📖"]),
     ...(S.undoStack.length>0?[mk("button","btn",{style:{padding:"6px 9px"},onClick:async()=>{await undoLast();}},["↩ Annuler"])]:[] ),
     ...(!isAdmin()&&S.pendingEntries.length>0?[(()=>{
       const btn=mk("button","btn",{style:{padding:"6px 9px",background:"#2563eb",color:"#fff",position:"relative"},onClick:()=>{S.modal="requestBasket";render();}},["📋 Ma demande"]);
