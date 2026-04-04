@@ -959,7 +959,11 @@ function render(){
   const app=document.getElementById("app");
   app.innerHTML="";
   // Vue visiteur — interface dédiée réservation bureaux
-  if(isVisitor()){buildVisitorView();return;}
+  if(isVisitor()){
+    buildVisitorView();
+    if(S.modal==="changePwd") app.appendChild(buildChangePwdModal());
+    return;
+  }
   // Template editor takes full screen
   if(S.modal==="tplEditor"){app.appendChild(buildTplEditor());return;}
   // Normal planning view
@@ -985,6 +989,7 @@ function render(){
   if(S.modal==="requestBasket") app.appendChild(buildRequestBasketModal());
   if(S.modal==="requestsAdmin") app.appendChild(buildRequestsAdminModal());
   if(S.modal==="dayDetail")    app.appendChild(buildDayDetailModal());
+  if(S.modal==="changePwd")   app.appendChild(buildChangePwdModal());
 }
 
 // ─── TOP BAR ─────────────────────────────────────────────────────────────────
@@ -1070,6 +1075,7 @@ function buildTopBar(){
     })()]:[]),
     mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Aide / Signaler un problème",onClick:()=>{window.location.href="mailto:ca.dence@outlook.fr?subject="+encodeURIComponent("[Cadence31] Problème / Question");}},["❓"]),
     mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Exporter en PDF",onClick:()=>{const prev=S.modal;S.modal=null;render();setTimeout(()=>{window.print();S.modal=prev;if(prev)render();},100);}},["📤"]),
+    mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Changer mon mot de passe",onClick:()=>{S.modal="changePwd";render();}},["🔑"]),
     mk("button","btn",{style:{marginLeft:"auto",padding:"6px 10px",fontSize:"16px"},title:"Quitter",onClick:logout},["🚪"]),
   ]);
   return mk("div","topbar",{},[r1,r2]);
@@ -4362,6 +4368,51 @@ function buildRequestsAdminModal(){
   return overlay;
 }
 
+// ─── MODAL CHANGEMENT MOT DE PASSE ───────────────────────────────────────────
+function buildChangePwdModal(){
+  const close=()=>{S.modal=null;render();};
+  const pw1=mk("input","",{type:"password",placeholder:"Nouveau mot de passe (8 caractères min.)",
+    style:{width:"100%",padding:"8px",boxSizing:"border-box",border:"1px solid #d1d5db",borderRadius:"6px",fontSize:"13px",marginBottom:"8px"}});
+  const pw2=mk("input","",{type:"password",placeholder:"Confirmer le mot de passe",
+    style:{width:"100%",padding:"8px",boxSizing:"border-box",border:"1px solid #d1d5db",borderRadius:"6px",fontSize:"13px"}});
+  const errEl=mk("p","",{style:{color:"#ef4444",fontSize:"12px",minHeight:"16px",margin:"6px 0 0"}});
+  const okEl=mk("p","",{style:{color:"#16a34a",fontSize:"12px",minHeight:"16px",margin:"6px 0 0"}});
+
+  const btnSave=mk("button","btn primary",{
+    style:{flex:"1"},
+    onClick:async()=>{
+      errEl.textContent="";okEl.textContent="";
+      const v1=pw1.value,v2=pw2.value;
+      if(v1.length<8){errEl.textContent="Mot de passe trop court (8 caractères min.)";return;}
+      if(v1!==v2){errEl.textContent="Les mots de passe ne correspondent pas";return;}
+      btnSave.disabled=true;btnSave.textContent="Enregistrement…";
+      try{
+        const{error}=await _sb.auth.updateUser({password:v1});
+        if(error)throw error;
+        okEl.textContent="✓ Mot de passe modifié avec succès";
+        pw1.value="";pw2.value="";
+        setTimeout(close,1500);
+      }catch(e){
+        errEl.textContent="Erreur : "+e.message;
+        btnSave.disabled=false;btnSave.textContent="Enregistrer";
+      }
+    }
+  },["Enregistrer"]);
+
+  const box=mk("div","modal",{style:{maxWidth:"360px",width:"95%"}},[
+    mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}},[
+      mk("h3","",{style:{margin:0}},["🔑 Changer mon mot de passe"]),
+      mk("button","mclose",{onClick:close},["×"]),
+    ]),
+    pw1,pw2,errEl,okEl,
+    mk("div","mfooter",{style:{marginTop:"12px",display:"flex",gap:"8px"}},[
+      mk("button","btn",{onClick:close},["Annuler"]),
+      btnSave,
+    ]),
+  ]);
+  return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
+}
+
 // ─── MODAL DÉTAIL JOURNÉE ─────────────────────────────────────────────────────
 function buildDayDetailModal(){
   const close=()=>{S.modal=null;S._detailDate=null;render();};
@@ -4565,7 +4616,8 @@ function buildVisitorView(){
         mk("button","btn",{onClick:()=>{S._visitorWeek=addDays(weekStart,7);render();}},["→"]),
         mk("button","btn today",{onClick:()=>{S._visitorWeek=getMonday(today);render();}},["Auj."]),
       ]),
-      mk("button","btn",{style:{marginLeft:"auto",padding:"6px 10px",fontSize:"16px"},title:"Quitter",onClick:logout},["🚪"]),
+      mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Changer mon mot de passe",onClick:()=>{S.modal="changePwd";render();}},["🔑"]),
+    mk("button","btn",{style:{marginLeft:"auto",padding:"6px 10px",fontSize:"16px"},title:"Quitter",onClick:logout},["🚪"]),
     ]),
   ]);
   app.appendChild(topbar);
