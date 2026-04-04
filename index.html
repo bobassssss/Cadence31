@@ -419,6 +419,7 @@ let S={
   // Workflow demandes (CP/DP/TP)
   requests:[],        // demandes chargées depuis Supabase
   pendingEntries:[],  // panier session : [{cells, code}] — accumulé avant envoi
+  publishQueue:[],    // modifications manuelles à publier : [{mid, date, slot, actBefore, actAfter}]
   // Historique annulation
   undoStack:[],       // [{keys:[...], before:{key:{act,comment}|null}}] max 20
   // Réservations bureaux
@@ -990,6 +991,7 @@ function render(){
   if(S.modal==="requestsAdmin") app.appendChild(buildRequestsAdminModal());
   if(S.modal==="dayDetail")    app.appendChild(buildDayDetailModal());
   if(S.modal==="changePwd")   app.appendChild(buildChangePwdModal());
+  if(S.modal==="publish")     app.appendChild(buildPublishModal());
 }
 
 // ─── TOP BAR ─────────────────────────────────────────────────────────────────
@@ -1067,6 +1069,7 @@ function buildTopBar(){
     mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Statistiques",onClick:()=>{S.modal="stats";render();}},["📊"]),
     mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px",textDecoration:S.showLegend?"none":"line-through"},title:S.showLegend?"Masquer la légende":"Afficher la légende",onClick:()=>{S.showLegend=!S.showLegend;render();}},["📖"]),
     ...(S.undoStack.length>0?[mk("button","btn",{style:{padding:"6px 9px"},onClick:async()=>{await undoLast();}},["↩ Annuler"])]:[] ),
+    ...(isAdmin()&&S.publishQueue.length>0?[(()=>{const btn=mk("button","btn",{style:{padding:"6px 9px",background:"#16a34a",color:"#fff",position:"relative"},onClick:()=>{S.modal="publish";render();}},["📢 Publier"]);const badge=mk("span","",{style:{position:"absolute",top:"-5px",right:"-5px",background:"#ef4444",color:"#fff",borderRadius:"50%",fontSize:"10px",fontWeight:"bold",width:"16px",height:"16px",display:"flex",alignItems:"center",justifyContent:"center"}},[String([...new Set(S.publishQueue.map(e=>e.mid))].length)]);btn.appendChild(badge);return btn;})()]:[] ),
     ...(!isAdmin()&&S.pendingEntries.length>0?[(()=>{
       const btn=mk("button","btn",{style:{padding:"6px 9px",background:"#2563eb",color:"#fff",position:"relative"},onClick:()=>{S.modal="requestBasket";render();}},["📋 Ma demande"]);
       const badge=mk("span","",{style:{position:"absolute",top:"-5px",right:"-5px",background:"#ef4444",color:"#fff",borderRadius:"50%",fontSize:"10px",fontWeight:"bold",width:"16px",height:"16px",display:"flex",alignItems:"center",justifyContent:"center"}},[String(S.pendingEntries.length)]);
@@ -1697,6 +1700,18 @@ function buildActivityModal(){
               cells.forEach(k=>{S.planning[k]={act:code,comment};saved2[k]={act:code,comment};});
               _persistPlanningEntries(saved2);
               persist();
+              // Alimenter la file de publication (admin uniquement)
+              if(isAdmin()){
+                cells.forEach(k=>{
+                  const parts=k.split("|");
+                  const mid=parts[0],date=parts[1],slot=parts[2];
+                  const actBefore=S.undoStack.length?S.undoStack[S.undoStack.length-1].before[k]?.act||null:null;
+                  // Éviter les doublons : si la clé existe déjà, mettre à jour
+                  const idx=S.publishQueue.findIndex(e=>e.key===k);
+                  if(idx>=0)S.publishQueue[idx]={key:k,mid,date,slot,actBefore:S.publishQueue[idx].actBefore,actAfter:code};
+                  else S.publishQueue.push({key:k,mid,date,slot,actBefore,actAfter:code});
+                });
+              }
               if(code==="CRC"){
                 S.actCells=[];S.modal="crcDashboard";render();
               } else if(!isAdmin()&&["CP","DP","TP"].includes(code)){
@@ -4366,6 +4381,86 @@ function buildRequestsAdminModal(){
   applyFilters();
 
   return overlay;
+}
+
+// ─── MODAL PUBLICATION DES MODIFICATIONS ─────────────────────────────────────
+function buildPublishModal(){
+  const close=()=>{S.modal=null;render();};
+  const queue=S.publishQueue||[];
+
+  // Grouper par membre
+  const byMember={};
+  queue.forEach(e=>{
+    if(!byMember[e.mid])byMember[e.mid]=[];
+    byMember[e.mid].push(e);
+  });
+
+  const ACTS=buildACTS();
+  const actLabel=code=>code?(ACTS[code]?.l||code):"—";
+  const fmtSlot=s=>s==="AM"?"Matin":"Après-midi";
+  const fmtD=dateStr=>{
+    const d=new Date(dateStr+"T12:00:00");
+    return `${DAYS_FULL[d.getDay()]} ${d.getDate()} ${MONTHS_FULL[d.getMonth()]}`;
+  };
+
+  // Corps du modal — liste par membre
+  const body=mk("div","",{style:{maxHeight:"55vh",overflowY:"auto",marginBottom:"12px"}});
+  Object.entries(byMember).forEach(([mid,changes])=>{
+    const member=S.members.find(m=>m.id===mid);
+    if(!member)return;
+    const block=mk("div","",{style:{marginBottom:"12px",borderRadius:"8px",border:"1px solid #e5e7eb",overflow:"hidden"}});
+    block.appendChild(mk("div","",{style:{background:"#f8fafc",padding:"6px 10px",fontWeight:"600",fontSize:"12px",color:"#1e3a5f",borderBottom:"1px solid #e5e7eb"}},[member.name]));
+    changes.sort((a,b)=>a.date.localeCompare(b.date)||a.slot.localeCompare(b.slot)).forEach(e=>{
+      const row=mk("div","",{style:{display:"flex",gap:"8px",padding:"5px 10px",borderBottom:"1px solid #f3f4f6",fontSize:"12px",alignItems:"center"}});
+      row.appendChild(mk("span","",{style:{minWidth:"140px",color:"#374151"}},[`${fmtD(e.date)} ${fmtSlot(e.slot)}`]));
+      row.appendChild(mk("span","",{style:{color:"#9ca3af",fontSize:"11px"}},[actLabel(e.actBefore)]));
+      row.appendChild(mk("span","",{style:{color:"#6b7280",padding:"0 4px"}},[" → "]));
+      row.appendChild(mk("span","",{style:{fontWeight:"600",color:"#1e3a5f"}},[actLabel(e.actAfter)]));
+      block.appendChild(row);
+    });
+    body.appendChild(block);
+  });
+
+  const nbMembers=Object.keys(byMember).length;
+
+  const btnSend=mk("button","btn",{
+    style:{background:"#16a34a",color:"#fff",flex:"1"},
+    onClick:()=>{
+      // Générer un mailto par membre
+      Object.entries(byMember).forEach(([mid,changes])=>{
+        const member=S.members.find(m=>m.id===mid);
+        if(!member||!member.email)return;
+        const lines=changes.sort((a,b)=>a.date.localeCompare(b.date)||a.slot.localeCompare(b.slot))
+          .map(e=>`• ${fmtD(e.date)} ${fmtSlot(e.slot)} : ${actLabel(e.actBefore)} → ${actLabel(e.actAfter)}`).join("\n");
+        const subject=encodeURIComponent("[Planning] Mise à jour de votre planning");
+        const body=encodeURIComponent(`Bonjour ${member.name.split(" ")[0]},\n\nVotre planning a été mis à jour :\n\n${lines}\n\nCordialement`);
+        const a=document.createElement("a");
+        a.href=`mailto:${member.email}?subject=${subject}&body=${body}`;
+        a.style.display="none";document.body.appendChild(a);a.click();document.body.removeChild(a);
+      });
+      S.publishQueue=[];
+      close();
+    }
+  },["📢 Envoyer les notifications"]);
+
+  const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
+    mk("h3","",{style:{margin:0}},["📢 Publier les modifications"]),
+    mk("button","mclose",{onClick:close},["×"]),
+  ]);
+  mk("p","",{style:{fontSize:"12px",color:"#6b7280",margin:"0 0 12px"}},[`${queue.length} modification${queue.length>1?"s":""} concernant ${nbMembers} collaborateur${nbMembers>1?"s":""}`]);
+
+  const info=mk("p","",{style:{fontSize:"12px",color:"#6b7280",margin:"0 0 12px"}},
+    [`${queue.length} modification${queue.length>1?"s":""} — ${nbMembers} collaborateur${nbMembers>1?"s":""} concerné${nbMembers>1?"s":""}`]);
+
+  const box=mk("div","modal",{style:{maxWidth:"500px",width:"95%"}},[
+    hdr,info,body,
+    mk("div","mfooter",{style:{display:"flex",gap:"8px"}},[
+      mk("button","btn",{onClick:()=>{S.publishQueue=[];close();}},["Vider la liste"]),
+      mk("button","btn",{onClick:close},["Fermer"]),
+      btnSend,
+    ]),
+  ]);
+  return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
 }
 
 // ─── MODAL CHANGEMENT MOT DE PASSE ───────────────────────────────────────────
