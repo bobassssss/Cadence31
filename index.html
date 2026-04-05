@@ -1001,6 +1001,7 @@ function render(){
   if(S.modal==="requestsAdmin") app.appendChild(buildRequestsAdminModal());
   if(S.modal==="dayDetail")    app.appendChild(buildDayDetailModal());
   if(S.modal==="changePwd")   app.appendChild(buildChangePwdModal());
+  if(S.modal==="backup")      app.appendChild(buildBackupModal());
   if(S.modal==="publish")     app.appendChild(buildPublishModal());
 }
 
@@ -1086,6 +1087,7 @@ function buildTopBar(){
       btn.appendChild(badge);
       return btn;
     })()]:[]),
+    mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Sauvegarde / Restauration",onClick:()=>{S.modal="backup";render();}},["💾"]),
     mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Aide / Signaler un problème",onClick:()=>{window.location.href="mailto:ca.dence@outlook.fr?subject="+encodeURIComponent("[Cadence31] Problème / Question");}},["❓"]),
     mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Exporter en PDF",onClick:()=>{const prev=S.modal;S.modal=null;render();setTimeout(()=>{window.print();S.modal=prev;if(prev)render();},100);}},["📤"]),
     mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Changer mon mot de passe",onClick:()=>{S.modal="changePwd";render();}},["🔑"]),
@@ -4532,6 +4534,134 @@ function buildPublishModal(){
       mk("button","btn",{onClick:close},["Fermer"]),
       btnSend,
     ]),
+  ]);
+  return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
+}
+
+// ─── MODAL SAUVEGARDE / RESTAURATION ─────────────────────────────────────────
+function buildBackupModal(){
+  const close=()=>{S.modal=null;render();};
+  const errEl=mk("p","",{style:{color:"#ef4444",fontSize:"12px",minHeight:"16px",margin:"4px 0 0"}});
+  const okEl=mk("p","",{style:{color:"#16a34a",fontSize:"12px",minHeight:"16px",margin:"4px 0 0"}});
+
+  // Mot de passe de protection
+  const pwdInp=mk("input","",{type:"password",placeholder:"Mot de passe de sauvegarde",
+    style:{width:"100%",padding:"8px",boxSizing:"border-box",border:"1px solid #d1d5db",borderRadius:"6px",fontSize:"13px"}});
+
+  // ── SAUVEGARDE ──
+  const btnSave=mk("button","btn primary",{
+    style:{flex:"1"},
+    onClick:async()=>{
+      const pwd=pwdInp.value.trim();
+      if(!pwd){errEl.textContent="Saisissez un mot de passe.";return;}
+      // Vérifier le mot de passe stocké dans settings
+      const storedPwd=S.settings.backupPwd||null;
+      if(storedPwd&&pwd!==storedPwd){errEl.textContent="Mot de passe incorrect.";return;}
+      // Si aucun mot de passe défini, on le définit maintenant
+      if(!storedPwd){
+        S.settings.backupPwd=pwd;
+        persist();
+      }
+      btnSave.disabled=true;btnSave.textContent="Export…";errEl.textContent="";
+      try{
+        // Récupérer toutes les données
+        const{data:planningData}=await _sb.from("planning").select("*").limit(100000);
+        const{data:detailData}=await _sb.from("planning_detail").select("*").limit(100000);
+        const backup={
+          version:1,
+          date:new Date().toISOString(),
+          members:S.members,
+          settings:S.settings,
+          planning:planningData||[],
+          planning_detail:detailData||[],
+          teamEvents:S.teamEvents,
+        };
+        const json=JSON.stringify(backup,null,2);
+        const blob=new Blob([json],{type:"application/json"});
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement("a");
+        const dateStr=new Date().toISOString().slice(0,10);
+        a.href=url;a.download=`cadence31_backup_${dateStr}.json`;
+        a.style.display="none";document.body.appendChild(a);a.click();
+        document.body.removeChild(a);URL.revokeObjectURL(url);
+        okEl.textContent=`✓ Sauvegarde téléchargée (${planningData?.length||0} entrées)`;
+      }catch(e){errEl.textContent="Erreur : "+e.message;}
+      btnSave.disabled=false;btnSave.textContent="💾 Sauvegarder";
+    }
+  },["💾 Sauvegarder"]);
+
+  // ── RESTAURATION ──
+  const fileInp=document.createElement("input");
+  fileInp.type="file";fileInp.accept=".json";fileInp.style.display="none";
+
+  const btnRestore=mk("button","btn",{
+    style:{flex:"1"},
+    onClick:()=>{errEl.textContent="";okEl.textContent="";fileInp.click();}
+  },["📂 Restaurer"]);
+
+  fileInp.addEventListener("change",async()=>{
+    const file=fileInp.files[0];if(!file)return;
+    const pwd=pwdInp.value.trim();
+    if(!pwd){errEl.textContent="Saisissez le mot de passe avant de restaurer.";return;}
+    const storedPwd=S.settings.backupPwd||null;
+    if(storedPwd&&pwd!==storedPwd){errEl.textContent="Mot de passe incorrect.";return;}
+    btnRestore.disabled=true;btnRestore.textContent="Restauration…";
+    try{
+      const text=await file.text();
+      const backup=JSON.parse(text);
+      if(!backup.version||!backup.planning){errEl.textContent="Fichier de sauvegarde invalide.";return;}
+      if(!confirm(`Restaurer la sauvegarde du ${backup.date?.slice(0,10)} ?\n\nCela remplacera toutes les données actuelles.`)){
+        btnRestore.disabled=false;btnRestore.textContent="📂 Restaurer";return;
+      }
+      // Restaurer dans Supabase
+      const chunk=200;
+      // Planning
+      await _sb.from("planning").delete().neq("key","__none__");
+      for(let i=0;i<backup.planning.length;i+=chunk)
+        await _sb.from("planning").insert(backup.planning.slice(i,i+chunk));
+      // Planning detail
+      if(backup.planning_detail?.length){
+        await _sb.from("planning_detail").delete().neq("id","00000000-0000-0000-0000-000000000000");
+        for(let i=0;i<backup.planning_detail.length;i+=chunk)
+          await _sb.from("planning_detail").insert(backup.planning_detail.slice(i,i+chunk));
+      }
+      // State local
+      S.members=backup.members||S.members;
+      S.settings=backup.settings||S.settings;
+      S.teamEvents=backup.teamEvents||S.teamEvents;
+      backup.planning.forEach(r=>{S.planning[r.key]={act:r.act,comment:r.comment||"",countAs:r.count_as};});
+      S.planningDetail=backup.planning_detail||[];
+      persist();
+      okEl.textContent=`✓ Restauration terminée (${backup.planning.length} entrées)`;
+      setTimeout(()=>{close();render();},1500);
+    }catch(e){errEl.textContent="Erreur : "+e.message;}
+    btnRestore.disabled=false;btnRestore.textContent="📂 Restaurer";
+  });
+
+  const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
+    mk("h3","",{style:{margin:0}},["💾 Sauvegarde / Restauration"]),
+    mk("button","mclose",{onClick:close},["×"]),
+  ]);
+
+  const infoEl=mk("div","info-box",{style:{marginBottom:"12px"}},
+    [storedPwdMsg()]);
+
+  function storedPwdMsg(){
+    return S.settings.backupPwd
+      ? "Mot de passe de sauvegarde déjà défini. Saisissez-le pour télécharger ou restaurer."
+      : "Aucun mot de passe défini. Le premier mot de passe saisi sera enregistré comme mot de passe de sauvegarde.";
+  }
+
+  const box=mk("div","modal",{style:{maxWidth:"380px",width:"95%"}},[
+    hdr,infoEl,
+    mk("div","frow",{style:{marginBottom:"12px"}},[mk("label","lf",{},["Mot de passe"]),pwdInp]),
+    errEl,okEl,
+    mk("div","mfooter",{style:{display:"flex",gap:"8px",marginTop:"12px"}},[
+      mk("button","btn",{onClick:close},["Fermer"]),
+      btnRestore,
+      btnSave,
+    ]),
+    fileInp,
   ]);
   return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
 }
