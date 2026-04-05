@@ -1540,7 +1540,9 @@ function buildMonthGrid(){
         if(hasComment){const dot=document.createElement("span");dot.className="cell-dot";dot.style.cssText="position:absolute;top:2px;right:2px;width:4px;height:4px;background:#3b82f6;border-radius:50%";td.appendChild(dot);}
         if(tooltipParts.length>0)td.title=tooltipParts.join(" · ");
         // PC: simple click = modal, hold+drag = multi-select
-        const _cellAct=getAct(member.id,d,slot)||getAct(member.id,d,slot==='AM'?'PM':'AM')||null;
+        const _actAM=getAct(member.id,d,"AM");
+        const _actPM=getAct(member.id,d,"PM");
+        const _cellAct=_actAM||_actPM||null;
         const _userAllowed=["CP","DP","TP"];
         const _canEdit=isAdmin()||(_auth.memberId&&_auth.memberId===member.id&&(!_cellAct||_userAllowed.includes(_cellAct)));
         if(!_canEdit){td.style.cursor="default";}
