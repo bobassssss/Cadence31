@@ -733,7 +733,10 @@ function buildTeamFilterTh(rowSpan){
   lbl.addEventListener("click",e=>{
     e.stopPropagation();open=!open;dropdown.style.display=open?"block":"none";
   });
-  document.addEventListener("click",()=>{open=false;dropdown.style.display="none";},{capture:true,once:false,passive:true});
+  document.addEventListener("click",(e)=>{
+    if(wrapper.contains(e.target))return;
+    open=false;dropdown.style.display="none";
+  });
 
   wrapper.appendChild(lbl);wrapper.appendChild(dropdown);
   th.appendChild(wrapper);
