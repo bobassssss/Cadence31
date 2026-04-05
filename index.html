@@ -1675,9 +1675,11 @@ function buildActivityModal(){
         const mid=parts[0],date=parts[1],slot=parts[2];
         const actBefore=S.undoStack.length?S.undoStack[S.undoStack.length-1].before[k]?.act||null:null;
         const idx=S.publishQueue.findIndex(e=>e.key===k);
-        if(idx>=0)S.publishQueue[idx]={key:k,mid,date,slot,actBefore:S.publishQueue[idx].actBefore,actAfter:code};
+        if(idx>=0){S.publishQueue[idx]={key:k,mid,date,slot,actBefore:S.publishQueue[idx].actBefore,actAfter:code};}
         else S.publishQueue.push({key:k,mid,date,slot,actBefore,actAfter:code});
       });
+      // Supprimer les entrées sans changement réel (actBefore === actAfter)
+      S.publishQueue=S.publishQueue.filter(e=>e.actBefore!==e.actAfter);
     }
     S.modal=null;S.actCells=[];render();
   };
@@ -1723,6 +1725,8 @@ function buildActivityModal(){
                   if(idx>=0)S.publishQueue[idx]={key:k,mid,date,slot,actBefore:S.publishQueue[idx].actBefore,actAfter:code};
                   else S.publishQueue.push({key:k,mid,date,slot,actBefore,actAfter:code});
                 });
+              // Supprimer les entrées sans changement réel (actBefore === actAfter)
+              S.publishQueue=S.publishQueue.filter(e=>e.actBefore!==e.actAfter);
               }
               if(code==="CRC"){
                 S.actCells=[];S.modal="crcDashboard";render();
