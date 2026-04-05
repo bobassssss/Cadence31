@@ -501,6 +501,14 @@ async function undoLast(){
       S.planning[k]=before[k];
       toUpsert.push({key:k,act:before[k].act,comment:before[k].comment||"",count_as:before[k].countAs||null});
     }
+    // Retirer du publishQueue — si la valeur revient à actBefore, plus besoin de publier
+    const idx=S.publishQueue.findIndex(e=>e.key===k);
+    if(idx>=0){
+      const entry=S.publishQueue[idx];
+      const newAct=before[k]?.act||null;
+      if(newAct===entry.actBefore) S.publishQueue.splice(idx,1);
+      else S.publishQueue[idx]={...entry,actAfter:newAct};
+    }
   });
   if(_sb){
     if(toDelete.length)await _sb.from("planning").delete().in("key",toDelete);
@@ -2695,13 +2703,36 @@ function buildTeamRenameModal(){
 function buildLegend(){
   const ACTS=buildACTS();
   const div=mk("div","legend",{},[mk("h4",{},["Légende des activités"])]);
-  const grid=mk("div","legend-grid");
-  Object.entries(ACTS).forEach(([code,a])=>{
-    const tag=mk("div","tag");tag.style.background=a.bg;tag.style.color=a.c;
-    tag.innerHTML=`<strong>${code}</strong>&nbsp;<span style="font-weight:400;font-size:10px">${a.l}</span>`;
-    grid.appendChild(tag);
+
+  // Groupes ordonnés logiquement
+  const AG=buildACTGroups();
+  const groups={
+    "Présence":["."],
+    "Accueil":AG["Accueil"]||[],
+    "Gestion valeurs":AG["Gestion valeurs"]||[],
+    "Activités":AG["Activités"]||[],
+    "Télétravail":AG["Télétravail"]||[],
+    "Absences":AG["Absences"]||[],
+    "Sites équipes":AG["Sites équipes"]||[],
+    "Lieux et activités personnalisées":AG["Lieux et activités personnalisées"]||[],
+  };
+
+  Object.entries(groups).forEach(([label,codes])=>{
+    const validCodes=codes.filter(c=>ACTS[c]);
+    if(!validCodes.length)return;
+    const section=mk("div","",{style:{marginBottom:"8px"}});
+    section.appendChild(mk("div","",{style:{fontSize:"9px",fontWeight:"700",color:"#94a3b8",letterSpacing:".15em",textTransform:"uppercase",marginBottom:"4px"}},[label]));
+    const row=mk("div","legend-grid");
+    validCodes.forEach(code=>{
+      const a=ACTS[code];
+      const tag=mk("div","tag");tag.style.background=a.bg;tag.style.color=a.c;
+      tag.innerHTML=`<strong>${code==="."?"·":code}</strong>&nbsp;<span style="font-weight:400;font-size:10px">${a.l}</span>`;
+      row.appendChild(tag);
+    });
+    section.appendChild(row);
+    div.appendChild(section);
   });
-  div.appendChild(grid);return div;
+  return div;
 }
 
 // ─── MODAL TABLEAU DE BORD CRC ────────────────────────────────────────────────
@@ -4486,7 +4517,18 @@ function buildPublishModal(){
   const box=mk("div","modal",{style:{maxWidth:"500px",width:"95%"}},[
     hdr,progress,body,
     mk("div","mfooter",{style:{display:"flex",gap:"8px"}},[
-      mk("button","btn",{onClick:()=>{S.publishQueue=[];S._publishIdx=0;close();}},["Vider"]),
+      mk("button","btn",{onClick:async()=>{
+        const toDelete=[],toUpsert=[];
+        S.publishQueue.forEach(e=>{
+          if(e.actBefore===null||e.actBefore===undefined){delete S.planning[e.key];toDelete.push(e.key);}
+          else{S.planning[e.key]={act:e.actBefore,comment:""};toUpsert.push({key:e.key,act:e.actBefore,comment:"",count_as:null});}
+        });
+        if(_sb){
+          if(toDelete.length)await _sb.from("planning").delete().in("key",toDelete);
+          if(toUpsert.length)await _sb.from("planning").upsert(toUpsert,{onConflict:"key"});
+        }
+        S.publishQueue=[];S._publishIdx=0;close();
+      }},["Vider"]),
       mk("button","btn",{onClick:close},["Fermer"]),
       btnSend,
     ]),
