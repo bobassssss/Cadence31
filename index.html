@@ -1513,7 +1513,7 @@ function buildMonthGrid(){
     });
     S.members.filter(m=>m.team===team).forEach(member=>{
       const tr=tbody.insertRow();
-      if(_auth.memberId&&member.id===_auth.memberId){tr.style.background="#dbeafe";tr.style.outline="2px solid #2563eb";tr.style.outlineOffset="-1px";}
+      if(_auth.memberId&&member.id===_auth.memberId){tr.style.background="#dbeafe";tr.style.borderLeft="3px solid #2563eb";}
       tr.appendChild(makeTdName(member));tr.appendChild(makeTdPost(member));
       workDays.forEach(({d,slots})=>{
         const keyAM=member.id+"|"+fmtDate(d)+"|AM";
