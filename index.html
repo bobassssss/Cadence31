@@ -1541,7 +1541,9 @@ function buildMonthGrid(){
         if(hasComment){const dot=document.createElement("span");dot.className="cell-dot";dot.style.cssText="position:absolute;top:2px;right:2px;width:4px;height:4px;background:#3b82f6;border-radius:50%";td.appendChild(dot);}
         if(tooltipParts.length>0)td.title=tooltipParts.join(" · ");
         // PC: simple click = modal, hold+drag = multi-select
-        const _canEdit=isAdmin()||(_auth.memberId&&_auth.memberId===member.id);
+        const _cellAct=getAct(member.id,d,slot)||getAct(member.id,d,slot==='AM'?'PM':'AM')||null;
+        const _userAllowed=["CP","DP","TP"];
+        const _canEdit=isAdmin()||(_auth.memberId&&_auth.memberId===member.id&&(!_cellAct||_userAllowed.includes(_cellAct)));
         if(!_canEdit){td.style.cursor="default";}
         else{
         let mMoved=false;
@@ -1586,6 +1588,12 @@ function attachEvents(td,key){
   // PC: click = ouvre directement la modale, maintien+glissement = multi-sélection
   const _mid=key.split("|")[0];
   if(!isAdmin()&&(!_auth.memberId||_auth.memberId!==_mid)){td.style.cursor="default";return;}
+  // Collaborateur non-admin : seulement si cellule vide ou CP/DP/TP
+  if(!isAdmin()&&_auth.memberId===_mid){
+    const _act=S.planning[key]?.act||null;
+    const _userAllowed=["CP","DP","TP"];
+    if(_act&&!_userAllowed.includes(_act)){td.style.cursor="default";return;}
+  }
   let mouseDownX=0,mouseDownY=0,didDrag=false;
   td.addEventListener("mousedown",e=>{
     if(e.button!==0)return;
@@ -4734,7 +4742,7 @@ function buildVisitorView(){
         mk("button","btn",{onClick:()=>{S._visitorWeek=addDays(weekStart,7);render();}},["→"]),
         mk("button","btn today",{onClick:()=>{S._visitorWeek=getMonday(today);render();}},["Auj."]),
       ]),
-      mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Changer mon mot de passe",onClick:()=>{S.modal="changePwd";render();}},["🔑"]),
+      ...(S.undoStack.length>0?[mk("button","btn",{style:{padding:"6px 9px"},onClick:async()=>{await undoLast();}},["↩ Annuler"])]:[] ),
     mk("button","btn",{style:{marginLeft:"auto",padding:"6px 10px",fontSize:"16px"},title:"Quitter",onClick:logout},["🚪"]),
     ]),
   ]);
