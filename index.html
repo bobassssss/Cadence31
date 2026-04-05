@@ -351,10 +351,9 @@ function buildACTGroups(){
     "Gestion valeurs":gdvCodes,
     "Activités":["C","R","CRC","F"],
     "Sites équipes":eqCodes,
-    "Lieux":siteCodes,
+    "Lieux et activités personnalisées":siteCodes,
     "Télétravail":["TP","TT"],
-    "Absences":["CP","CV","DP","DV","O"],
-    "Divers":[".","/"],
+    "Absences":["CP","CV","DP","DV","O","/"],
   };
 }
 
@@ -1760,7 +1759,7 @@ function buildActivityModal(){
       commentInp=mk("input","",{type:"text",placeholder:"Ex : formation, accompagnement…"});
       commentInp.value=S.actInitComment||"";body[body.length-1].appendChild(commentInp);
       body.push(mk("div","mfooter",{},[
-        mk("button","btn danger",{onClick:resetDefault},["↺ Présent (défaut)"]),
+        mk("button","btn",{style:{background:"#dcfce7",color:"#166534",borderColor:"#bbf7d0"},onClick:resetDefault},["↺ Présent (défaut)"]),
         mk("button","btn",{onClick:close},["Fermer"]),
       ]));
 
