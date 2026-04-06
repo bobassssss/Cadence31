@@ -4567,14 +4567,19 @@ function buildBackupModal(){
         // Récupérer toutes les données
         const{data:planningData}=await _sb.from("planning").select("*").limit(100000);
         const{data:detailData}=await _sb.from("planning_detail").select("*").limit(100000);
+        const{data:requestsData}=await _sb.from("requests").select("*").limit(10000);
+        const{data:deskData}=await _sb.from("desk_bookings").select("*").limit(10000);
         const backup={
-          version:1,
+          version:2,
           date:new Date().toISOString(),
           members:S.members,
           settings:S.settings,
+          templates:S.templates,
+          teamEvents:S.teamEvents,
           planning:planningData||[],
           planning_detail:detailData||[],
-          teamEvents:S.teamEvents,
+          requests:requestsData||[],
+          desk_bookings:deskData||[],
         };
         const json=JSON.stringify(backup,null,2);
         const blob=new Blob([json],{type:"application/json"});
@@ -4615,23 +4620,48 @@ function buildBackupModal(){
       }
       // Restaurer dans Supabase
       const chunk=200;
-      // Planning
-      await _sb.from("planning").delete().neq("key","__none__");
-      for(let i=0;i<backup.planning.length;i+=chunk)
-        await _sb.from("planning").insert(backup.planning.slice(i,i+chunk));
+      // Planning — upsert par chunks (plus fiable que delete+insert)
+      const planningRows=backup.planning.map(r=>({
+        key:r.key, act:r.act, comment:r.comment||"", count_as:r.count_as||null
+      }));
+      // D'abord effacer les entrées existantes pour les membres concernés
+      const midsInBackup=[...new Set(planningRows.map(r=>r.key.split("|")[0]))];
+      for(const mid of midsInBackup)
+        await _sb.from("planning").delete().like("key",`${mid}|%`);
+      // Puis insérer toutes les lignes du backup
+      for(let i=0;i<planningRows.length;i+=chunk)
+        await _sb.from("planning").insert(planningRows.slice(i,i+chunk));
+
       // Planning detail
       if(backup.planning_detail?.length){
-        await _sb.from("planning_detail").delete().neq("id","00000000-0000-0000-0000-000000000000");
+        for(const mid of midsInBackup)
+          await _sb.from("planning_detail").delete().eq("member_id",mid);
         for(let i=0;i<backup.planning_detail.length;i+=chunk)
           await _sb.from("planning_detail").insert(backup.planning_detail.slice(i,i+chunk));
       }
-      // State local
+
+      // Membres et paramètres
       S.members=backup.members||S.members;
       S.settings=backup.settings||S.settings;
+      S.templates=backup.templates||S.templates;
       S.teamEvents=backup.teamEvents||S.teamEvents;
-      backup.planning.forEach(r=>{S.planning[r.key]={act:r.act,comment:r.comment||"",countAs:r.count_as};});
-      S.planningDetail=backup.planning_detail||[];
+
+      // Restaurer demandes et réservations si présentes
+      if(backup.requests?.length){
+        await _sb.from("requests").delete().neq("id","00000000-0000-0000-0000-000000000000");
+        for(let i=0;i<backup.requests.length;i+=chunk)
+          await _sb.from("requests").insert(backup.requests.slice(i,i+chunk));
+      }
+      if(backup.desk_bookings?.length){
+        await _sb.from("desk_bookings").delete().neq("id","00000000-0000-0000-0000-000000000000");
+        for(let i=0;i<backup.desk_bookings.length;i+=chunk)
+          await _sb.from("desk_bookings").insert(backup.desk_bookings.slice(i,i+chunk));
+      }
       persist();
+
+      // Recharger tout l'état depuis Supabase pour être sûr
+      okEl.textContent="✓ Données restaurées, rechargement…";
+      await loadState();
       okEl.textContent=`✓ Restauration terminée (${backup.planning.length} entrées)`;
       setTimeout(()=>{close();render();},1500);
     }catch(e){errEl.textContent="Erreur : "+e.message;}
@@ -4652,6 +4682,33 @@ function buildBackupModal(){
       : "Aucun mot de passe défini. Le premier mot de passe saisi sera enregistré comme mot de passe de sauvegarde.";
   }
 
+  const btnErase=mk("button","btn danger",{
+    style:{width:"100%",marginTop:"8px"},
+    onClick:async()=>{
+      const pwd=pwdInp.value.trim();
+      if(!pwd){errEl.textContent="Saisissez le mot de passe avant d'effacer.";return;}
+      const storedPwd=S.settings.backupPwd||null;
+      if(storedPwd&&pwd!==storedPwd){errEl.textContent="Mot de passe incorrect.";return;}
+      if(!confirm("Effacer TOUTES les données ?\n\n• Planning + détail horaire m-work\n• Membres (noms, équipes, postes, emails)\n• Paramètres (logo, sites, zones scolaires…)\n• Modèles type\n• Événements d'équipe\n• Demandes de congés\n• Réservations de bureaux\n\nCette action est irréversible sans sauvegarde."))return;
+      btnErase.disabled=true;btnErase.textContent="Effacement…";errEl.textContent="";
+      try{
+        await _sb.from("planning").delete().neq("key","__none__");
+        await _sb.from("planning_detail").delete().neq("id","00000000-0000-0000-0000-000000000000");
+        await _sb.from("requests").delete().neq("id","00000000-0000-0000-0000-000000000000");
+        await _sb.from("desk_bookings").delete().neq("id","00000000-0000-0000-0000-000000000000");
+        await _sb.from("members").delete().neq("id","__none__");
+        await _sb.from("settings").delete().in("key",["main","templates","teamEvents"]);
+        // Réinitialiser l'état local
+        S.planning={};S.members=[];S.templates={};S.teamEvents={};
+        S.settings={schoolZone:"C",minOnSite:0,minPerDay:{},teamSettings:{},customSites:[]};
+        S.planningDetail=[];S.deskBookings=[];
+        okEl.textContent="✓ Toutes les données ont été effacées.";
+        setTimeout(()=>{close();render();},1500);
+      }catch(e){errEl.textContent="Erreur : "+e.message;}
+      btnErase.disabled=false;btnErase.textContent="🗑 Effacer toutes les données";
+    }
+  },["🗑 Effacer toutes les données"]);
+
   const box=mk("div","modal",{style:{maxWidth:"380px",width:"95%"}},[
     hdr,infoEl,
     mk("div","frow",{style:{marginBottom:"12px"}},[mk("label","lf",{},["Mot de passe"]),pwdInp]),
@@ -4661,6 +4718,7 @@ function buildBackupModal(){
       btnRestore,
       btnSave,
     ]),
+    mk("div","",{style:{borderTop:"1px solid #f3f4f6",marginTop:"12px",paddingTop:"12px"}},[btnErase]),
     fileInp,
   ]);
   return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
