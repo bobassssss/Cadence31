@@ -4618,21 +4618,35 @@ function buildBackupModal(){
       if(!confirm(`Restaurer la sauvegarde du ${backup.date?.slice(0,10)} ?\n\nCela remplacera toutes les données actuelles.`)){
         btnRestore.disabled=false;btnRestore.textContent="📂 Restaurer";return;
       }
-      // Restaurer dans Supabase
       const chunk=200;
-      // Planning — upsert par chunks (plus fiable que delete+insert)
-      const planningRows=backup.planning.map(r=>({
-        key:r.key, act:r.act, comment:r.comment||"", count_as:r.count_as||null
-      }));
-      // D'abord effacer les entrées existantes pour les membres concernés
-      const midsInBackup=[...new Set(planningRows.map(r=>r.key.split("|")[0]))];
+
+      // 1. Effacer tout le planning d'un coup
+      btnRestore.textContent="Effacement…";
+      let from=null,to=null;
+      if(backup.planning.length){
+        const dates=backup.planning.map(r=>r.key.split("|")[1]).filter(Boolean).sort();
+        from=dates[0];to=dates[dates.length-1];
+      }
+      // Supprimer par plage de dates (plus fiable que par membre)
+      if(from&&to){
+        await _sb.from("planning").delete().gte("key",from).lte("key",to+"~");
+      }
+      // Supprimer aussi ce qui reste (clés hors plage)
+      const midsInBackup=[...new Set(backup.planning.map(r=>r.key.split("|")[0]))];
       for(const mid of midsInBackup)
         await _sb.from("planning").delete().like("key",`${mid}|%`);
-      // Puis insérer toutes les lignes du backup
-      for(let i=0;i<planningRows.length;i+=chunk)
-        await _sb.from("planning").insert(planningRows.slice(i,i+chunk));
 
-      // Planning detail
+      // 2. Réinsérer tout
+      btnRestore.textContent="Restauration…";
+      const planningRows=backup.planning.map(r=>({
+        key:r.key,act:r.act,comment:r.comment||"",count_as:r.count_as||null
+      }));
+      for(let i=0;i<planningRows.length;i+=chunk){
+        const{error}=await _sb.from("planning").insert(planningRows.slice(i,i+chunk));
+        if(error)console.error("planning insert error:",error,planningRows.slice(i,i+2));
+      }
+
+      // 3. Planning detail
       if(backup.planning_detail?.length){
         for(const mid of midsInBackup)
           await _sb.from("planning_detail").delete().eq("member_id",mid);
@@ -4640,15 +4654,21 @@ function buildBackupModal(){
           await _sb.from("planning_detail").insert(backup.planning_detail.slice(i,i+chunk));
       }
 
-      // Membres et paramètres
-      S.members=backup.members||S.members;
-      S.settings=backup.settings||S.settings;
-      S.templates=backup.templates||S.templates;
-      S.teamEvents=backup.teamEvents||S.teamEvents;
-      if(backup.desk_bookings)S.deskBookings=backup.desk_bookings;
-      if(backup.requests)S.requests=backup.requests;
+      // 4. Membres — upsert sur id
+      if(backup.members?.length){
+        await _sb.from("members").delete().neq("id","__none__");
+        for(let i=0;i<backup.members.length;i+=chunk)
+          await _sb.from("members").upsert(backup.members.slice(i,i+chunk),{onConflict:"id"});
+      }
 
-      // Restaurer demandes et réservations si présentes
+      // 5. Settings (main, templates, teamEvents)
+      await _sb.from("settings").upsert([
+        {key:"main",value:backup.settings||{}},
+        {key:"templates",value:backup.templates||{}},
+        {key:"teamEvents",value:backup.teamEvents||{}},
+      ],{onConflict:"key"});
+
+      // 6. Demandes et réservations
       if(backup.requests?.length){
         await _sb.from("requests").delete().neq("id","00000000-0000-0000-0000-000000000000");
         for(let i=0;i<backup.requests.length;i+=chunk)
@@ -4659,6 +4679,14 @@ function buildBackupModal(){
         for(let i=0;i<backup.desk_bookings.length;i+=chunk)
           await _sb.from("desk_bookings").upsert(backup.desk_bookings.slice(i,i+chunk),{onConflict:"id"});
       }
+
+      // 7. État local
+      S.members=backup.members||S.members;
+      S.settings=backup.settings||S.settings;
+      S.templates=backup.templates||S.templates;
+      S.teamEvents=backup.teamEvents||S.teamEvents;
+      if(backup.desk_bookings)S.deskBookings=backup.desk_bookings;
+      if(backup.requests)S.requests=backup.requests;
       persist();
 
       // Recharger tout l'état depuis Supabase pour être sûr
