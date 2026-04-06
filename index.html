@@ -4645,17 +4645,19 @@ function buildBackupModal(){
       S.settings=backup.settings||S.settings;
       S.templates=backup.templates||S.templates;
       S.teamEvents=backup.teamEvents||S.teamEvents;
+      if(backup.desk_bookings)S.deskBookings=backup.desk_bookings;
+      if(backup.requests)S.requests=backup.requests;
 
       // Restaurer demandes et réservations si présentes
       if(backup.requests?.length){
         await _sb.from("requests").delete().neq("id","00000000-0000-0000-0000-000000000000");
         for(let i=0;i<backup.requests.length;i+=chunk)
-          await _sb.from("requests").insert(backup.requests.slice(i,i+chunk));
+          await _sb.from("requests").upsert(backup.requests.slice(i,i+chunk),{onConflict:"id"});
       }
       if(backup.desk_bookings?.length){
         await _sb.from("desk_bookings").delete().neq("id","00000000-0000-0000-0000-000000000000");
         for(let i=0;i<backup.desk_bookings.length;i+=chunk)
-          await _sb.from("desk_bookings").insert(backup.desk_bookings.slice(i,i+chunk));
+          await _sb.from("desk_bookings").upsert(backup.desk_bookings.slice(i,i+chunk),{onConflict:"id"});
       }
       persist();
 
