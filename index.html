@@ -1539,6 +1539,7 @@ function buildMonthGrid(){
           const actCode=getAct(member.id,d,slot);const ai=ACTS[actCode];
           const h=document.createElement("div");h.className="td-mcell-half";
           h.style.background=isSel?"#dbeafe":(ai?ai.bg:"transparent");
+          if(ai)h.style.borderRadius="3px";
           h.style.color=ai?ai.c:"#d1d5db";h.textContent=ai?(ai.disp||actCode):actCode;
           if(entry.comment)tooltipParts.push((slot==="AM"?"M":"A")+": "+entry.comment);
           inner.appendChild(h);
