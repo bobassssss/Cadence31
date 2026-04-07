@@ -91,10 +91,10 @@ tr.drag-over-row td{border-top:2px solid #1e3a5f!important}
 .td-cov.c-warn-g{background:#fefce8;color:#854d0e}
 .td-cov.c-danger{background:#fee2e2;color:#b91c1c}
 .td-cov.c-empty{background:#f9fafb;color:#e5e7eb}
-.td-cell{width:32px;min-width:32px;height:28px;padding:0;text-align:center;cursor:pointer;position:relative;user-select:none;-webkit-user-select:none}
+.td-cell{width:32px;min-width:32px;height:28px;padding:2px;text-align:center;cursor:pointer;position:relative;user-select:none;-webkit-user-select:none}
 .td-cell.selecting{outline:2px solid #2563eb;outline-offset:-2px;background:#dbeafe!important}
 .td-cell.today-cell{border-color:#93c5fd!important}
-.cell-code{font-size:9.5px;font-weight:600;display:block;line-height:28px;overflow:hidden;white-space:nowrap;padding:0 1px}
+.cell-code{font-size:9.5px;font-weight:600;display:block;line-height:24px;overflow:hidden;white-space:nowrap;padding:0 1px;border-radius:4px;height:100%}
 .cell-dot{position:absolute;top:2px;right:2px;width:4px;height:4px;background:#3b82f6;border-radius:50%}
 .disp-badge{position:absolute;bottom:1px;right:1px;font-size:7px;font-weight:700;color:#1d4ed8;line-height:1}
 .td-mcell{width:22px;min-width:22px;height:32px;padding:0;cursor:pointer;position:relative;user-select:none;-webkit-user-select:none;vertical-align:middle}
@@ -1431,8 +1431,9 @@ function buildWeekGrid(){
           const td=document.createElement("td");
           td.className="td-cell"+(isSel?" selecting":"")+(isToday?" today-cell":"");
           td.dataset.key=key;
-          if(ai&&!isSel)td.style.background=ai.bg;
+          if(ai&&!isSel){td.style.background=ai.bg;td.style.borderRadius="4px";}
           const span=document.createElement("span");span.className="cell-code";
+          if(ai){span.style.background=ai.bg;span.style.color=ai.c;span.style.borderRadius="4px";}else{span.textContent=ai?(ai.disp||actCode):actCode;}
           span.textContent=ai?(ai.disp||actCode):actCode;if(ai)span.style.color=ai.c;
           td.appendChild(span);
           if(entry.comment){const dot=document.createElement("span");dot.className="cell-dot";td.appendChild(dot);}
@@ -2237,7 +2238,7 @@ function buildTplEditor(){
     const td=document.createElement("td");
     td.className="tpl-cell"+(isSel?" selecting":"");
     td.dataset.key=key;
-    if(ai&&!isSel)td.style.background=ai.bg;
+    if(ai&&!isSel){td.style.background=ai.bg;td.style.borderRadius="4px";}
     const span=document.createElement("span");span.className="cell-code";
     span.style.lineHeight="28px";span.textContent=ai?(ai.disp||actCode):actCode;
     if(ai)span.style.color=ai.c;
