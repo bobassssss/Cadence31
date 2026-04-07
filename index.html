@@ -4564,11 +4564,30 @@ function buildBackupModal(){
       }
       btnSave.disabled=true;btnSave.textContent="Export…";errEl.textContent="";
       try{
-        // Récupérer toutes les données
-        const{data:planningData}=await _sb.from("planning").select("*").limit(100000);
-        const{data:detailData}=await _sb.from("planning_detail").select("*").limit(100000);
-        const{data:requestsData}=await _sb.from("requests").select("*").limit(10000);
-        const{data:deskData}=await _sb.from("desk_bookings").select("*").limit(10000);
+        // Récupérer planning en paginant comme loadState
+        btnSave.textContent="Export planning…";
+        let planningData=[];
+        let from=0;const PAGE=1000;
+        while(true){
+          const{data:pl}=await _sb.from("planning").select("*").range(from,from+PAGE-1);
+          if(!pl||pl.length===0)break;
+          planningData=planningData.concat(pl);
+          if(pl.length<PAGE)break;
+          from+=PAGE;
+        }
+        // Planning detail paginé
+        btnSave.textContent="Export détail…";
+        let detailData=[];
+        from=0;
+        while(true){
+          const{data:pd}=await _sb.from("planning_detail").select("*").range(from,from+PAGE-1);
+          if(!pd||pd.length===0)break;
+          detailData=detailData.concat(pd);
+          if(pd.length<PAGE)break;
+          from+=PAGE;
+        }
+        const{data:requestsData}=await _sb.from("requests").select("*");
+        const{data:deskData}=await _sb.from("desk_bookings").select("*");
         const backup={
           version:2,
           date:new Date().toISOString(),
@@ -4615,53 +4634,45 @@ function buildBackupModal(){
       const text=await file.text();
       const backup=JSON.parse(text);
       if(!backup.version||!backup.planning){errEl.textContent="Fichier de sauvegarde invalide.";return;}
-      if(!confirm(`Restaurer la sauvegarde du ${backup.date?.slice(0,10)} ?\n\nCela remplacera toutes les données actuelles.`)){
+      if(!confirm(`Restaurer la sauvegarde du ${backup.date?.slice(0,10)} ?\n${backup.planning.length} entrées planning, ${backup.members?.length||0} membres.\n\nCela remplacera toutes les données actuelles.`)){
         btnRestore.disabled=false;btnRestore.textContent="📂 Restaurer";return;
       }
       const chunk=200;
 
-      // 1. Effacer tout le planning d'un coup
+      // 1. Supprimer tout le planning (condition toujours vraie)
       btnRestore.textContent="Effacement…";
-      let from=null,to=null;
-      if(backup.planning.length){
-        const dates=backup.planning.map(r=>r.key.split("|")[1]).filter(Boolean).sort();
-        from=dates[0];to=dates[dates.length-1];
-      }
-      // Supprimer par plage de dates (plus fiable que par membre)
-      if(from&&to){
-        await _sb.from("planning").delete().gte("key",from).lte("key",to+"~");
-      }
-      // Supprimer aussi ce qui reste (clés hors plage)
-      const midsInBackup=[...new Set(backup.planning.map(r=>r.key.split("|")[0]))];
-      for(const mid of midsInBackup)
-        await _sb.from("planning").delete().like("key",`${mid}|%`);
+      await _sb.from("planning").delete().gte("key","");
+      await _sb.from("planning_detail").delete().gte("date","");
 
-      // 2. Réinsérer tout
-      btnRestore.textContent="Restauration…";
+      // 2. Réinsérer le planning par chunks
+      btnRestore.textContent=`Restauration 0/${backup.planning.length}…`;
       const planningRows=backup.planning.map(r=>({
         key:r.key,act:r.act,comment:r.comment||"",count_as:r.count_as||null
       }));
       for(let i=0;i<planningRows.length;i+=chunk){
-        const{error}=await _sb.from("planning").insert(planningRows.slice(i,i+chunk));
-        if(error)console.error("planning insert error:",error,planningRows.slice(i,i+2));
+        btnRestore.textContent=`Restauration ${i}/${planningRows.length}…`;
+        await _sb.from("planning").insert(planningRows.slice(i,i+chunk));
       }
 
       // 3. Planning detail
       if(backup.planning_detail?.length){
-        for(const mid of midsInBackup)
-          await _sb.from("planning_detail").delete().eq("member_id",mid);
-        for(let i=0;i<backup.planning_detail.length;i+=chunk)
-          await _sb.from("planning_detail").insert(backup.planning_detail.slice(i,i+chunk));
+        const detailRows=backup.planning_detail.map(r=>({
+          member_id:r.member_id,date:r.date,start_time:r.start_time,end_time:r.end_time,
+          activity_id:r.activity_id,activity_name:r.activity_name,
+          activity_code:r.activity_code,activity_color:r.activity_color
+        }));
+        for(let i=0;i<detailRows.length;i+=chunk)
+          await _sb.from("planning_detail").insert(detailRows.slice(i,i+chunk));
       }
 
-      // 4. Membres — upsert sur id
+      // 4. Membres
       if(backup.members?.length){
-        await _sb.from("members").delete().neq("id","__none__");
+        await _sb.from("members").delete().gte("id","");
         for(let i=0;i<backup.members.length;i+=chunk)
           await _sb.from("members").upsert(backup.members.slice(i,i+chunk),{onConflict:"id"});
       }
 
-      // 5. Settings (main, templates, teamEvents)
+      // 5. Settings
       await _sb.from("settings").upsert([
         {key:"main",value:backup.settings||{}},
         {key:"templates",value:backup.templates||{}},
@@ -4670,12 +4681,12 @@ function buildBackupModal(){
 
       // 6. Demandes et réservations
       if(backup.requests?.length){
-        await _sb.from("requests").delete().neq("id","00000000-0000-0000-0000-000000000000");
+        await _sb.from("requests").delete().gte("id","");
         for(let i=0;i<backup.requests.length;i+=chunk)
           await _sb.from("requests").upsert(backup.requests.slice(i,i+chunk),{onConflict:"id"});
       }
       if(backup.desk_bookings?.length){
-        await _sb.from("desk_bookings").delete().neq("id","00000000-0000-0000-0000-000000000000");
+        await _sb.from("desk_bookings").delete().gte("id","");
         for(let i=0;i<backup.desk_bookings.length;i+=chunk)
           await _sb.from("desk_bookings").upsert(backup.desk_bookings.slice(i,i+chunk),{onConflict:"id"});
       }
