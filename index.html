@@ -2493,6 +2493,7 @@ function buildTplApplyModal(){
     const s=new Date(startInp.value),e=new Date(endInp.value);
     if(isNaN(s)||isNaN(e)||s>e){alert("Dates invalides.");return;}
     let cur=getMonday(s);let applied=0;
+    const appliedKeys=new Set();
     while(cur<=e){
       const cw=getCycleWeek(cur);
       S.members.forEach(m=>{
@@ -2506,12 +2507,22 @@ function buildTplApplyModal(){
             const slotKey=`w${cw}_d${off}_${slot}`;
             const act=slots[slotKey];
             const def=defaultAct(m.id,d,slot);
-            if(act&&act!==def){S.planning[planKey]={act,comment:""};applied++;}
+            if(act&&act!==def){
+              S.planning[planKey]={act,comment:""};
+              appliedKeys.add(planKey);
+              applied++;
+            }
           });
         });
       });
       cur=addDays(cur,7);
     }
+    // Sauvegarder dans Supabase uniquement les nouvelles entrées
+    const newEntries={};
+    Object.keys(S.planning).forEach(k=>{
+      if(appliedKeys.has(k))newEntries[k]=S.planning[k];
+    });
+    _persistPlanningEntries(newEntries);
     persist();
     const nbWeeks=Math.ceil((e-s)/(7*86400000));
     alert(`Modèle "${name}" appliqué sur ${nbWeeks} semaine${nbWeeks>1?"s":""} (${applied} case${applied>1?"s":""} renseignée${applied>1?"s":""}).`);
