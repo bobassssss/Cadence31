@@ -2564,17 +2564,28 @@ function buildTplApplyModal(){
   const endInp=mk("input","",{type:"date"});endInp.value=fmtDate(addDays(mon,55));// ~8 semaines par défaut
 
   const applyTpl=()=>{
-    const tpl=S.templates[name].weeks||S.templates[name];
+    const tplRaw=S.templates[name];
+    const tpl=tplRaw?.weeks||tplRaw;
     const s=new Date(startInp.value),e=new Date(endInp.value);
     if(isNaN(s)||isNaN(e)||s>e){alert("Dates invalides.");return;}
 
-    // Debug : vérifier les IDs
-    const tplMids=Object.keys(tpl);
+    // Debug complet
+    const tplMids=Object.keys(tpl).filter(k=>k!=="memberNames");
     const memberMids=S.members.map(m=>m.id);
     const matching=tplMids.filter(id=>memberMids.includes(id));
-    console.log("Template mids:",tplMids.length,"Membres actuels:",memberMids.length,"Correspondances:",matching.length);
+    console.log("=== DEBUG TEMPLATE ===");
+    console.log("Nom:",name);
+    console.log("Structure tplRaw keys:",Object.keys(tplRaw));
+    console.log("tpl keys (membres):",tplMids.length,"ex:",tplMids[0]);
+    console.log("S.members ids ex:",memberMids[0]);
+    console.log("Correspondances:",matching.length);
+    // Exemple de slot dans le premier membre du template
+    if(tplMids[0]){
+      const exSlots=Object.keys(tpl[tplMids[0]]);
+      console.log("Slots du 1er membre:",exSlots.length,"ex:",exSlots[0]);
+    }
     if(matching.length===0){
-      alert(`Aucun membre du modèle ne correspond aux membres actuels.\n\nLe modèle a été créé avec des membres différents. Il faut le recréer.`);
+      alert(`Aucun membre du modèle ne correspond.\n\nUtilisez 🔄 Membres pour mettre à jour les IDs.`);
       return;
     }
 
