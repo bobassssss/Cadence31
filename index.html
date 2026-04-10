@@ -2153,6 +2153,77 @@ function buildSettingsModal(){
 }
 
 // ─── MODÈLES : LISTE (overlay modal) ─────────────────────────────────────────
+// ─── SYNCHRONISATION MEMBRES D'UN MODÈLE ─────────────────────────────────────
+function syncTplMembers(name){
+  const tplObj=S.templates[name];
+  const tpl=tplObj?.weeks||tplObj;
+  if(!tpl){return;}
+
+  const norm=s=>(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
+
+  // Noms stockés dans le modèle (si disponibles)
+  const storedNames=tplObj?.memberNames||{};
+
+  // Index nom normalisé → membre actuel
+  const currentByNorm={};
+  S.members.forEach(m=>{currentByNorm[norm(m.name)]=m;});
+
+  const updated=[],removed=[],added=[];
+  const newTpl={};
+  const matchedCurrentIds=new Set();
+
+  Object.keys(tpl).forEach(oldId=>{
+    // 1. Essayer par ID direct
+    let match=S.members.find(m=>m.id===oldId);
+
+    // 2. Sinon essayer par nom stocké
+    if(!match&&storedNames[oldId]){
+      match=currentByNorm[norm(storedNames[oldId])];
+    }
+
+    if(match){
+      newTpl[match.id]=tpl[oldId]; // recopier avec le bon ID
+      matchedCurrentIds.add(match.id);
+      const label=match.id!==oldId?`${match.name} (ID mis à jour)`:match.name;
+      updated.push(label);
+    } else {
+      const oldName=storedNames[oldId]||oldId;
+      removed.push(oldName);
+    }
+  });
+
+  // Ajouter les membres actuels absents du modèle
+  S.members.forEach(m=>{
+    if(!matchedCurrentIds.has(m.id)){
+      newTpl[m.id]={};
+      added.push(m.name);
+    }
+  });
+
+  const lines=[];
+  if(updated.length)lines.push(`✓ Conservés/mis à jour : ${updated.length} membre(s)`);
+  if(removed.length)lines.push(`✗ Supprimés : ${removed.join(", ")}`);
+  if(added.length)lines.push(`+ Ajoutés : ${added.join(", ")}`);
+
+  if(!confirm(`Mise à jour du modèle "${name}" :\n\n${lines.join("\n")}\n\nConfirmer ?`))return;
+
+  // Mettre à jour le modèle avec les nouveaux noms
+  const newMemberNames={};
+  S.members.forEach(m=>{newMemberNames[m.id]=m.name;});
+  if(S.templates[name].weeks){
+    S.templates[name].weeks=newTpl;
+    S.templates[name].memberNames=newMemberNames;
+  } else {
+    S.templates[name]={weeks:newTpl,memberNames:newMemberNames};
+  }
+  persist();
+  const msg=[`Modèle "${name}" mis à jour.`];
+  if(removed.length)msg.push(`⚠ ${removed.length} membre(s) supprimé(s) : ${removed.join(", ")}.`);
+  if(added.length)msg.push(`+ ${added.length} nouveau(x) membre(s) ajouté(s) avec planning vide.`);
+  alert(msg.join("\n\n"));
+  render();
+}
+
 function buildTplListOverlay(){
   const tplKeys=Object.keys(S.templates);
   const close=()=>{S.modal=null;render();};
@@ -2181,6 +2252,7 @@ function buildTplListOverlay(){
     item.appendChild(mk("span","tpl-name",{},[name]));
     const actions=mk("div","tpl-actions");
     actions.appendChild(mk("button","btn",{style:{fontSize:"11px",padding:"4px 9px"},onClick:()=>openEditor(name)},["✏ Modifier"]));
+    actions.appendChild(mk("button","btn",{style:{fontSize:"11px",padding:"4px 9px"},title:"Mettre à jour les membres",onClick:()=>syncTplMembers(name)},["🔄 Membres"]));
     actions.appendChild(mk("button","btn primary",{style:{fontSize:"11px",padding:"4px 9px"},onClick:()=>{S.editingTplName=name;S.modal="tplApply";render();}},["▶ Appliquer"]));
     actions.appendChild(mk("button","btn danger",{style:{fontSize:"11px",padding:"4px 9px"},onClick:()=>{
       if(confirm(`Supprimer le modèle "${name}" ?`)){delete S.templates[name];persist();render();}
@@ -2209,7 +2281,10 @@ function buildTplEditor(){
     const nm=nameInpEl.value.trim()||(existingName||"");
     if(!nm){nameInpEl.focus();return;}
     if(!isNew&&nm!==existingName){delete S.templates[existingName];}
-    S.templates[nm]={weeks:deepCopyTpl(S.tplDraft)};
+    // Sauvegarder en incluant les noms des membres pour future synchronisation
+    const memberNames={};
+    S.members.forEach(m=>{memberNames[m.id]=m.name;});
+    S.templates[nm]={weeks:deepCopyTpl(S.tplDraft),memberNames};
     S.editingTplName=nm;persist();
     // Show confirmation inline without closing
     nameInpEl.style.borderColor="#22c55e";
@@ -2492,6 +2567,17 @@ function buildTplApplyModal(){
     const tpl=S.templates[name].weeks||S.templates[name];
     const s=new Date(startInp.value),e=new Date(endInp.value);
     if(isNaN(s)||isNaN(e)||s>e){alert("Dates invalides.");return;}
+
+    // Debug : vérifier les IDs
+    const tplMids=Object.keys(tpl);
+    const memberMids=S.members.map(m=>m.id);
+    const matching=tplMids.filter(id=>memberMids.includes(id));
+    console.log("Template mids:",tplMids.length,"Membres actuels:",memberMids.length,"Correspondances:",matching.length);
+    if(matching.length===0){
+      alert(`Aucun membre du modèle ne correspond aux membres actuels.\n\nLe modèle a été créé avec des membres différents. Il faut le recréer.`);
+      return;
+    }
+
     let cur=getMonday(s);let applied=0;
     const appliedKeys=new Set();
     while(cur<=e){
