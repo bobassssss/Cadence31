@@ -2574,15 +2574,15 @@ function buildTplApplyModal(){
     const memberMids=S.members.map(m=>m.id);
     const matching=tplMids.filter(id=>memberMids.includes(id));
     console.log("=== DEBUG TEMPLATE ===");
-    console.log("Nom:",name);
-    console.log("Structure tplRaw keys:",Object.keys(tplRaw));
-    console.log("tpl keys (membres):",tplMids.length,"ex:",tplMids[0]);
-    console.log("S.members ids ex:",memberMids[0]);
-    console.log("Correspondances:",matching.length);
-    // Exemple de slot dans le premier membre du template
-    if(tplMids[0]){
-      const exSlots=Object.keys(tpl[tplMids[0]]);
-      console.log("Slots du 1er membre:",exSlots.length,"ex:",exSlots[0]);
+    console.log("Correspondances:",matching.length,"/",tplMids.length);
+    // Montrer le contenu réel des slots du 1er membre correspondant
+    if(matching[0]){
+      const m=S.members.find(m=>m.id===matching[0]);
+      const slots=tpl[matching[0]];
+      console.log("Membre:",m?.name,"Slots:",JSON.stringify(slots));
+      // Tester une clé concrète
+      const testKey="w0_d1_AM";
+      console.log("Slot w0_d1_AM:",slots[testKey],"défaut pour Mar AM:",defaultAct(matching[0],addDays(getMonday(new Date()),1),"AM"));
     }
     if(matching.length===0){
       alert(`Aucun membre du modèle ne correspond.\n\nUtilisez 🔄 Membres pour mettre à jour les IDs.`);
