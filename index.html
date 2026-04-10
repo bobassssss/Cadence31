@@ -2599,8 +2599,9 @@ function buildTplApplyModal(){
           const d=addDays(cur,off);if(d>e)return;
           getDaySlots(d).forEach(slot=>{
             const planKey=m.id+"|"+fmtDate(d)+"|"+slot;
-            // Ne pas écraser une case déjà renseignée
-            if(S.planning[planKey])return;
+            // Ne pas écraser sauf si la case est vide ou à la valeur par défaut
+            const existing=S.planning[planKey];
+            if(existing&&existing.act&&existing.act!==".")return;
             const slotKey=`w${cw}_d${off}_${slot}`;
             const act=slots[slotKey];
             const def=defaultAct(m.id,d,slot);
@@ -2632,7 +2633,7 @@ function buildTplApplyModal(){
   const bodyEls=[
     hdr,
     mk("div","info-box",{style:{marginBottom:"12px"}},[`Modèle : ${name} · Le cycle Sem.1 / Sem.2 s'aligne automatiquement sur les semaines paires/impaires.`]),
-    mk("div","",{style:{display:"flex",gap:"8px",marginBottom:"12px"}},[
+    mk("div","",{style:{display:"flex",gap:"8px",marginBottom:"8px"}},[
       mk("div","",{style:{flex:"1"}},[mk("label","lf",{},["Du"]),startInp]),
       mk("div","",{style:{flex:"1"}},[mk("label","lf",{},["Au"]),endInp]),
     ]),
