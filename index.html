@@ -2563,7 +2563,7 @@ function buildTplApplyModal(){
   const startInp=mk("input","",{type:"date"});startInp.value=fmtDate(addDays(mon,1));
   const endInp=mk("input","",{type:"date"});endInp.value=fmtDate(addDays(mon,55));// ~8 semaines par défaut
 
-  const applyTpl=()=>{
+  const applyTpl=async()=>{
     const tplRaw=S.templates[name];
     const tpl=tplRaw?.weeks||tplRaw;
     const s=new Date(startInp.value),e=new Date(endInp.value);
@@ -2573,17 +2573,6 @@ function buildTplApplyModal(){
     const tplMids=Object.keys(tpl).filter(k=>k!=="memberNames");
     const memberMids=S.members.map(m=>m.id);
     const matching=tplMids.filter(id=>memberMids.includes(id));
-    console.log("=== DEBUG TEMPLATE ===");
-    console.log("Correspondances:",matching.length,"/",tplMids.length);
-    // Montrer le contenu réel des slots du 1er membre correspondant
-    if(matching[0]){
-      const m=S.members.find(m=>m.id===matching[0]);
-      const slots=tpl[matching[0]];
-      console.log("Membre:",m?.name,"Slots:",JSON.stringify(slots));
-      // Tester une clé concrète
-      const testKey="w0_d1_AM";
-      console.log("Slot w0_d1_AM:",slots[testKey],"défaut pour Mar AM:",defaultAct(matching[0],addDays(getMonday(new Date()),1),"AM"));
-    }
     if(matching.length===0){
       alert(`Aucun membre du modèle ne correspond.\n\nUtilisez 🔄 Membres pour mettre à jour les IDs.`);
       return;
@@ -2617,14 +2606,14 @@ function buildTplApplyModal(){
     }
     // Sauvegarder dans Supabase uniquement les nouvelles entrées
     const newEntries={};
-    Object.keys(S.planning).forEach(k=>{
-      if(appliedKeys.has(k))newEntries[k]=S.planning[k];
+    appliedKeys.forEach(k=>{
+      if(S.planning[k])newEntries[k]=S.planning[k];
     });
-    _persistPlanningEntries(newEntries);
-    persist();
+    if(Object.keys(newEntries).length>0)await _persistPlanningEntries(newEntries);
     const nbWeeks=Math.ceil((e-s)/(7*86400000));
+    S.modal=null;S.editingTplName=null;
+    render();
     alert(`Modèle "${name}" appliqué sur ${nbWeeks} semaine${nbWeeks>1?"s":""} (${applied} case${applied>1?"s":""} renseignée${applied>1?"s":""}).`);
-    S.modal=null;S.editingTplName=null;render();
   };
 
   const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px"}},[
