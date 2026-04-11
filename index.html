@@ -281,36 +281,36 @@ function posteAbbr(val){
 
 const BASE_ACTS={
   ".":  {l:"Présent sur site",      c:"#166534",bg:"#dcfce7"},
-  "S":  {l:"Soutien accueil",       c:"#0284c7",bg:"#bae6fd"},
-  "C":  {l:"Coaching",              c:"#6d28d9",bg:"#ede9fe"},
-  "R":  {l:"Réunion",               c:"#4338ca",bg:"#e0e7ff"},
-  "CRC":{l:"CRC",                   c:"#1e40af",bg:"#dbeafe"},
-  "F":  {l:"Formation",             c:"#065f46",bg:"#d1fae5"},
-  "TP": {l:"Télétravail prévu",     c:"#0e7490",bg:"#ecfeff"},
-  "TT": {l:"Télétravail",           c:"#0891b2",bg:"#cffafe"},
-  "CP": {l:"Congés prévus",         c:"#c2410c",bg:"#ffedd5"},
-  "CV": {l:"Congés validés",        c:"#b91c1c",bg:"#fee2e2"},
-  "DP": {l:"Déplacé prévu",         c:"#be185d",bg:"#fce7f3"},
-  "DV": {l:"Déplacé validé",        c:"#9d174d",bg:"#fbcfe8"},
-  "O":  {l:"Autre absence",         c:"#6b7280",bg:"#f3f4f6"},
+  "S":  {l:"Soutien accueil",       c:"#92400e",bg:"#fde68a"},  // amber foncé
+  "C":  {l:"Coaching",              c:"#b45309",bg:"#fef3c7"},  // amber moyen
+  "R":  {l:"Réunion",               c:"#4338ca",bg:"#e0e7ff"},  // indigo
+  "CRC":{l:"CRC",                   c:"#0e7490",bg:"#cffafe"},  // teal (A2)
+  "F":  {l:"Formation",             c:"#3730a3",bg:"#eef2ff"},  // indigo foncé
+  "TP": {l:"Télétravail prévu",     c:"#dc2626",bg:"#fef2f2"},  // rouge clair (CV)
+  "TT": {l:"Télétravail",           c:"#155e75",bg:"#ecfeff"},  // teal foncé
+  "CP": {l:"Congés prévus",         c:"#b91c1c",bg:"#fee2e2"},  // rouge (CV)
+  "CV": {l:"Congés validés",        c:"#6d28d9",bg:"#f5f3ff"},  // violet (EQ3)
+  "DP": {l:"Déplacé prévu",         c:"#991b1b",bg:"#fecaca"},  // rouge foncé
+  "DV": {l:"Déplacé validé",        c:"#0891b2",bg:"#e0f9ff"},  // teal clair
+  "O":  {l:"Autre absence",         c:"#7c3aed",bg:"#ede9fe"},  // violet clair (EQ3)
   "/":  {l:"Repos / Fermeture",     c:"#9ca3af",bg:"#f1f5f9"},
 };
 // Palettes pour A/G/EQ dynamiques (jusqu'à 6 équipes)
 const TEAM_PALETTES=[
-  {a:{c:"#0369a1",bg:"#e0f2fe"},g:{c:"#92400e",bg:"#fef3c7"},eq:{c:"#0369a1",bg:"#dbeafe"}},
-  {a:{c:"#0e7490",bg:"#cffafe"},g:{c:"#78350f",bg:"#fde68a"},eq:{c:"#0e7490",bg:"#ecfeff"}},
-  {a:{c:"#7c3aed",bg:"#ede9fe"},g:{c:"#1e40af",bg:"#dbeafe"},eq:{c:"#6d28d9",bg:"#f5f3ff"}},
-  {a:{c:"#047857",bg:"#d1fae5"},g:{c:"#b45309",bg:"#fef3c7"},eq:{c:"#065f46",bg:"#ecfdf5"}},
-  {a:{c:"#b91c1c",bg:"#fee2e2"},g:{c:"#7c3aed",bg:"#ede9fe"},eq:{c:"#991b1b",bg:"#fef2f2"}},
-  {a:{c:"#0f766e",bg:"#ccfbf1"},g:{c:"#c2410c",bg:"#ffedd5"},eq:{c:"#115e59",bg:"#f0fdfa"}},
+  {a:{c:"#d97706",bg:"#fffbeb"},g:{c:"#b45309",bg:"#fef3c7"},eq:{c:"#0e7490",bg:"#cffafe"}},
+  {a:{c:"#b45309",bg:"#fef3c7"},g:{c:"#92400e",bg:"#fde68a"},eq:{c:"#0891b2",bg:"#e0f9ff"}},
+  {a:{c:"#92400e",bg:"#fde68a"},g:{c:"#78350f",bg:"#fef9c3"},eq:{c:"#155e75",bg:"#ecfeff"}},
+  {a:{c:"#78350f",bg:"#fef9c3"},g:{c:"#d97706",bg:"#fffbeb"},eq:{c:"#0e7490",bg:"#cffafe"}},
+  {a:{c:"#f59e0b",bg:"#fefce8"},g:{c:"#b45309",bg:"#fef3c7"},eq:{c:"#0891b2",bg:"#e0f9ff"}},
+  {a:{c:"#d97706",bg:"#fff7ed"},g:{c:"#92400e",bg:"#fde68a"},eq:{c:"#155e75",bg:"#ecfeff"}},
 ];
 // L1 = site Équipe 1 (code fixe EQ1), L2 = site Équipe 2 (code fixe EQ2)
 // L3 et L4 = lieux personnalisables (code auto 3 lettres)
 const DEFAULT_CUSTOM_SITES=[
   {code:"EQ1",label:"Équipe 1",fixed:true,c:"#0369a1",bg:"#e0f2fe"},
   {code:"EQ2",label:"Équipe 2",fixed:true,c:"#0e7490",bg:"#cffafe"},
-  {code:"L3", label:"Lieu 3",  fixed:false,c:"#14532d",bg:"#86efac"},
-  {code:"L4", label:"Lieu 4",  fixed:false,c:"#065f46",bg:"#d1fae5"},
+  {code:"L3", label:"Lieu 3",  fixed:false,c:"#166534",bg:"#86efac"},
+  {code:"L4", label:"Lieu 4",  fixed:false,c:"#14532d",bg:"#6ee7b7"},
 ];
 function teamDisp(teamName){
   return teamName.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase().slice(0,3);
