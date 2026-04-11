@@ -331,9 +331,16 @@ function buildACTS(){
   const sites=S.settings.customSites||DEFAULT_CUSTOM_SITES;
   const nonFixed=sites.filter(s=>!s.fixed);
   const nonFixedLabels=nonFixed.map(s=>s.label);
+  // Palette verte pour tous les lieux/activités personnalisés
+  const CUSTOM_GREEN=[
+    {c:"#166534",bg:"#86efac"},{c:"#14532d",bg:"#6ee7b7"},
+    {c:"#15803d",bg:"#a7f3d0"},{c:"#16a34a",bg:"#bbf7d0"},
+    {c:"#065f46",bg:"#6ee7b7"},{c:"#047857",bg:"#99f6e4"},
+  ];
   nonFixed.forEach((s,nfi)=>{
     const code=labelToCode(s.label,nfi,nonFixedLabels);
-    a[code]={l:s.label,c:s.c,bg:s.bg};
+    const col=CUSTOM_GREEN[nfi%CUSTOM_GREEN.length];
+    a[code]={l:s.label,c:col.c,bg:col.bg};
   });
   return a;
 }
@@ -1941,7 +1948,7 @@ function buildSettingsModal(){
     mk("button","btn",{style:{padding:"2px 10px",fontSize:"12px"},onClick:()=>{
       // Ajouter un nouveau lieu
       const newCode="L"+(workSites.length+1);
-      workSites.push({code:newCode,label:"Nouveau lieu",fixed:false,c:"#374151",bg:"#f3f4f6",countAs:"present"});
+      workSites.push({code:newCode,label:"Nouveau lieu",fixed:false,c:"#166534",bg:"#86efac",countAs:"present"});
       rebuildSiteRows();
     }},["+"]),
   ]));
