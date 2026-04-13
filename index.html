@@ -1341,7 +1341,7 @@ function makeTeamSepRow(team, workDays, isMobile){
       const note=S.teamEvents[team+"|"+fmtDate(d)]||"";
       const td=document.createElement("td");td.className="td-tevent-month";
       const inner=mk("div","td-tevent-month-inner"+(note?"":" empty"));
-      inner.textContent=note?"●":"·";if(note)inner.title=note;
+      const ev1=fmtEventCell(team+"|"+fmtDate(d));inner.textContent=ev1.text;if(ev1.hasContent)inner.title=ev1.text;
       td.appendChild(inner);
       td.addEventListener("click",()=>open(d));
       td.addEventListener("touchend",e=>{e.preventDefault();open(d);});
@@ -1351,8 +1351,9 @@ function makeTeamSepRow(team, workDays, isMobile){
     workDays.forEach(({d,slots})=>{
       const note=S.teamEvents[team+"|"+fmtDate(d)]||"";
       const td=document.createElement("td");td.className="td-tevent";td.colSpan=slots.length;
-      const inner=mk("div","td-tevent-inner"+(note?"":" empty"));
-      inner.textContent=note||"·";if(note)inner.title=note;
+      const evW=fmtEventCell(team+"|"+fmtDate(d));
+      const inner=mk("div","td-tevent-inner"+(evW.hasContent?"":" empty"));
+      inner.textContent=evW.text;if(evW.hasContent)inner.title=evW.text;
       td.appendChild(inner);
       td.addEventListener("click",e=>{e.stopPropagation();open(d);});
       td.addEventListener("touchend",e=>{e.preventDefault();e.stopPropagation();open(d);});
@@ -1362,6 +1363,25 @@ function makeTeamSepRow(team, workDays, isMobile){
   return tr;
 }
 
+
+// ─── HELPER ÉVÉNEMENTS D'ÉQUIPE ──────────────────────────────────────────────
+function getTeamEvents(key){
+  const v=S.teamEvents[key];
+  if(!v)return[];
+  if(typeof v==="string")return[{id:"legacy",label:v,startTime:"",endTime:""}];
+  if(Array.isArray(v))return v;
+  return[];
+}
+function setTeamEvents(key,events){
+  if(events.length===0)delete S.teamEvents[key];
+  else S.teamEvents[key]=events;
+}
+function fmtEventCell(key){
+  const evs=getTeamEvents(key);
+  if(evs.length===0)return{text:"·",hasContent:false};
+  if(evs.length===1)return{text:evs[0].label||"●",hasContent:true};
+  return{text:`${evs.length} événements`,hasContent:true};
+}
 function buildTeamNoteModal(){
   const {team,dateStr}=S.teamNoteEdit||{};
   if(!team||!dateStr)return mk("div");
@@ -1369,18 +1389,64 @@ function buildTeamNoteModal(){
   const d=new Date(dateStr+"T12:00:00");
   const label=`${DAYS_FULL[d.getDay()]} ${d.getDate()} ${MONTHS_FULL[d.getMonth()]} ${d.getFullYear()}`;
   const key=team+"|"+dateStr;
-  const inp=mk("input","",{type:"text",placeholder:"Ex : Réunion d'équipe, Fermeture agence, Visite DG…"});
-  inp.value=S.teamEvents[key]||"";
-  const save=()=>{const v=inp.value.trim();if(v)S.teamEvents[key]=v;else delete S.teamEvents[key];persist();close();};
-  inp.addEventListener("keydown",e=>{if(e.key==="Enter")save();});
-  const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"8px"}},[mk("h3"),mk("button","mclose",{onClick:close},["×"])]);
-  hdr.querySelector("h3").textContent="📅 Événement — "+team;
-  const footer=mk("div","mfooter");
-  if(S.teamEvents[key])footer.appendChild(mk("button","btn danger",{onClick:()=>{delete S.teamEvents[key];persist();close();}},[" Supprimer"]));
-  footer.appendChild(mk("button","btn",{onClick:close},["Annuler"]));
-  footer.appendChild(mk("button","btn primary",{onClick:save},["Enregistrer"]));
+
+  const container=mk("div","");
+  function rebuild(){
+    container.innerHTML="";
+    const events=getTeamEvents(key);
+
+    // Liste des événements existants
+    if(events.length>0){
+      const list=mk("div","",{style:{marginBottom:"12px"}});
+      events.forEach(ev=>{
+        const row=mk("div","",{style:{display:"flex",alignItems:"center",gap:"6px",padding:"6px 8px",background:"#f9f5ff",borderRadius:"8px",marginBottom:"6px",border:"1px solid #ede9fe"}});
+        const timeStr=ev.startTime&&ev.endTime?mk("span","",{style:{fontSize:"11px",color:"#7c3aed",minWidth:"90px",fontVariantNumeric:"tabular-nums"}},[`${ev.startTime} → ${ev.endTime}`]):mk("span","",{style:{fontSize:"11px",color:"#c4b5fd",minWidth:"90px"}},["Horaire libre"]);
+        const lbl=mk("span","",{style:{flex:"1",fontSize:"12px",color:"#374151"}},[ev.label||"(sans titre)"]);
+        const btnDel=mk("button","btn danger",{style:{padding:"2px 7px",fontSize:"11px"},onClick:()=>{
+          const newEvs=getTeamEvents(key).filter(e=>e.id!==ev.id);
+          setTeamEvents(key,newEvs);persist();rebuild();
+        }},["✕"]);
+        row.appendChild(timeStr);row.appendChild(lbl);row.appendChild(btnDel);
+        list.appendChild(row);
+      });
+      container.appendChild(list);
+    }else{
+      container.appendChild(mk("p","",{style:{color:"#9ca3af",fontStyle:"italic",fontSize:"12px",marginBottom:"12px"}},["Aucun événement ce jour."]));
+    }
+
+    // Formulaire ajout
+    const form=mk("div","",{style:{borderTop:"1px solid #f3f4f6",paddingTop:"10px"}});
+    form.appendChild(mk("p","",{style:{fontSize:"11px",fontWeight:"600",color:"#6b7280",marginBottom:"8px"}},["Ajouter un événement"]));
+    const labelInp=mk("input","",{type:"text",placeholder:"Ex : Réunion d'équipe, Visite DG…",
+      style:{width:"100%",padding:"7px 8px",boxSizing:"border-box",border:"1px solid #d1d5db",borderRadius:"6px",fontSize:"13px",marginBottom:"8px"}});
+    const timeRow=mk("div","",{style:{display:"flex",gap:"8px",marginBottom:"8px"}});
+    const startInp=mk("input","",{type:"time",style:{flex:"1",padding:"6px 8px",border:"1px solid #d1d5db",borderRadius:"6px",fontSize:"13px"}});
+    const endInp=mk("input","",{type:"time",style:{flex:"1",padding:"6px 8px",border:"1px solid #d1d5db",borderRadius:"6px",fontSize:"13px"}});
+    timeRow.appendChild(mk("div","",{style:{flex:"1"}},[mk("label","lf",{},["Début"]),startInp]));
+    timeRow.appendChild(mk("div","",{style:{flex:"1"}},[mk("label","lf",{},["Fin"]),endInp]));
+    const btnAdd=mk("button","btn primary",{style:{width:"100%",padding:"8px"},onClick:()=>{
+      const lv=labelInp.value.trim();
+      if(!lv){labelInp.style.borderColor="#ef4444";return;}
+      const newEv={id:"ev"+Date.now(),label:lv,startTime:startInp.value,endTime:endInp.value};
+      const evs=[...getTeamEvents(key),newEv];
+      setTeamEvents(key,evs);persist();rebuild();
+    }},["+ Ajouter"]);
+    form.appendChild(labelInp);form.appendChild(timeRow);form.appendChild(btnAdd);
+    container.appendChild(form);
+  }
+  rebuild();
+
+  const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"8px"}},[
+    mk("h3","",{style:{margin:0}},["📅 "+team]),
+    mk("button","mclose",{onClick:close},["×"])
+  ]);
   return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[
-    mk("div","modal",{},[hdr,mk("p","",{style:{fontSize:"12px",color:"#6b7280",marginBottom:"8px"}},[label]),inp,footer]),
+    mk("div","modal",{style:{maxWidth:"420px",width:"95%"}},[
+      hdr,
+      mk("p","",{style:{fontSize:"12px",color:"#6b7280",marginBottom:"12px"}},[label]),
+      container,
+      mk("div","mfooter",{style:{marginTop:"12px"}},[mk("button","btn",{onClick:close},["Fermer"])]),
+    ]),
   ]);
 }
 function buildWeekGrid(){
@@ -4470,7 +4536,8 @@ function buildRequestsAdminModal(){
     const d=new Date(bk.date+"T12:00:00");
     const dayLbl=`${DAYS_FULL[d.getDay()]} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
     const slotLbl=bk.slot==="AM"?"Matin":"Après-midi";
-    const dateLabel=`${dayLbl} — ${slotLbl}`;
+    const timeStr=bk.start_time&&bk.end_time?` (${bk.start_time}–${bk.end_time})`:"";
+    const dateLabel=`${dayLbl} — ${slotLbl}${timeStr}`;
     const statusEl=mk("span","",{style:{
       display:"inline-block",padding:"1px 7px",borderRadius:"10px",fontSize:"11px",fontWeight:"bold",
       background:isPendingB?"#fef3c7":bk.status==="approved"?"#dcfce7":"#fee2e2",
@@ -4483,11 +4550,13 @@ function buildRequestsAdminModal(){
           ev.target.disabled=true;ev.target.textContent="…";
           await _sb.from("desk_bookings").update({status:"approved"}).eq("id",bk.id);
           S.deskBookings=S.deskBookings.map(x=>x.id===bk.id?{...x,status:"approved"}:x);
-          const visitorName=bk.visitor_email.split("@")[0]; const note=`🏢 ${visitorName}${bk.comment?" – "+bk.comment:""}`;
+          const visitorName=bk.visitor_email.split("@")[0];
+          const timeNote=bk.start_time&&bk.end_time?` ${bk.start_time}–${bk.end_time}`:"";
+          const noteLabel=`🏢 ${visitorName}${timeNote}${bk.comment?" – "+bk.comment:""}`;
           const evKey=`${bk.team}|${bk.date}`;
-          const existing=S.teamEvents[evKey]||"";
-          if(!existing.includes(visitorName)){
-            S.teamEvents[evKey]=existing?`${existing} · ${note}`:note;
+          const existingEvs=getTeamEvents(evKey);
+          if(!existingEvs.some(e=>e.label===noteLabel)){
+            setTeamEvents(evKey,[...existingEvs,{id:"bk"+bk.id,label:noteLabel,startTime:bk.start_time||"",endTime:bk.end_time||""}]);
             persist();
           }
           const a=document.createElement("a");
@@ -5226,8 +5295,17 @@ function buildDeskBookingModal(team,d,slot,avail){
   const slotLbl=slot==="AM"?"Matin":"Après-midi";
   const dayLbl=`${DAYS_FULL[d.getDay()]} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
 
+  // Horaires par défaut selon le créneau
+  const defaultStart=slot==="AM"?"08:30":"13:30";
+  const defaultEnd=slot==="AM"?"12:00":"17:00";
+
   const emailInp=mk("input","",{type:"email",placeholder:"votre@email.fr",style:{width:"100%",marginBottom:"8px"}});
-  const commentInp=mk("input","",{type:"text",placeholder:"Motif (optionnel)",style:{width:"100%"}});
+  const commentInp=mk("input","",{type:"text",placeholder:"Motif (optionnel)",style:{width:"100%",marginBottom:"8px"}});
+  const timeRow=mk("div","",{style:{display:"flex",gap:"8px",marginBottom:"8px"}});
+  const startInp=mk("input","",{type:"time",value:defaultStart,style:{flex:"1",padding:"6px 8px",border:"1px solid #d1d5db",borderRadius:"6px",fontSize:"13px"}});
+  const endInp=mk("input","",{type:"time",value:defaultEnd,style:{flex:"1",padding:"6px 8px",border:"1px solid #d1d5db",borderRadius:"6px",fontSize:"13px"}});
+  timeRow.appendChild(mk("div","",{style:{flex:"1"}},[mk("label","lf",{},["Heure de début"]),startInp]));
+  timeRow.appendChild(mk("div","",{style:{flex:"1"}},[mk("label","lf",{},["Heure de fin"]),endInp]));
   const errEl=mk("p","",{style:{color:"#ef4444",fontSize:"12px",minHeight:"16px",margin:"4px 0 0"}});
 
   const overlay=document.createElement("div");overlay.className="overlay";
@@ -5244,12 +5322,14 @@ function buildDeskBookingModal(team,d,slot,avail){
           team,date:dateStr,slot,
           visitor_email:email,
           comment:commentInp.value.trim(),
+          start_time:startInp.value||null,
+          end_time:endInp.value||null,
           status:"pending",
         }).select().single();
         if(error)throw error;
         S.deskBookings=[data,...S.deskBookings];
-        // Même système que les congés — ouvre l'app mail
-        const dateLabel=`${dayLbl} — ${slotLbl}`;
+        const timeStr=startInp.value&&endInp.value?` (${startInp.value}–${endInp.value})`:"";
+        const dateLabel=`${dayLbl} — ${slotLbl}${timeStr}`;
         const subject=encodeURIComponent(`[Planning] Demande bureau — ${team}`);
         const mailBody=encodeURIComponent(`Bonjour,\n\nDemande de réservation de bureau :\n• Équipe : ${team}\n• Date : ${dateLabel}\n• Email visiteur : ${email}\n• Motif : ${commentInp.value.trim()||"—"}\n\nConnectez-vous pour valider.\nhttps://cadence31.vercel.app`);
         window.location.href=`mailto:${_ADM}?from=${encodeURIComponent(email)}&subject=${subject}&body=${mailBody}`;
@@ -5273,7 +5353,8 @@ function buildDeskBookingModal(team,d,slot,avail){
     mk("span","",{style:{fontSize:"11px",color:"#6b7280"}},[`${avail} bureau${avail>1?"x":""} disponible${avail>1?"s":""}`]),
   ]));
   box.appendChild(mk("div","frow",{style:{marginBottom:"8px"}},[mk("label","lf",{},["Votre email"]),emailInp]));
-  box.appendChild(mk("div","frow",{},[mk("label","lf",{},["Motif"]),commentInp]));
+  box.appendChild(mk("div","frow",{style:{marginBottom:"8px"}},[mk("label","lf",{},["Motif"]),commentInp]));
+  box.appendChild(timeRow);
   box.appendChild(errEl);
   box.appendChild(mk("div","mfooter",{style:{marginTop:"12px",display:"flex",gap:"8px"}},[
     mk("button","btn",{onClick:close},["Annuler"]),
