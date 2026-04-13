@@ -4788,7 +4788,8 @@ function buildBackupModal(){
         a.href=url;a.download=`cadence31_backup_${dateStr}.json`;
         a.style.display="none";document.body.appendChild(a);a.click();
         document.body.removeChild(a);URL.revokeObjectURL(url);
-        okEl.textContent=`✓ Sauvegarde téléchargée (${planningData?.length||0} entrées)`;
+        const nbTeams=Object.keys(backup.settings?.teamSettings||{}).length;
+        okEl.textContent=`✓ Sauvegarde téléchargée (${planningData.length} entrées, ${nbTeams} équipes configurées)`;
       }catch(e){errEl.textContent="Erreur : "+e.message;}
       btnSave.disabled=false;btnSave.textContent="💾 Sauvegarder";
     }
@@ -5204,6 +5205,7 @@ function buildVisitorView(){
   const wrap=mk("div","",{style:{overflowX:"auto",padding:"8px"}});
 
   teams.forEach(team=>{
+    try{
     const ts=S.settings.teamSettings?.[team]||{};
     const bureauxFixes=ts.bureauxFixes??0;
 
@@ -5287,6 +5289,13 @@ function buildVisitorView(){
 
     card.appendChild(table);
     wrap.appendChild(card);
+    }catch(err){
+      console.error("Visitor view error for team",team,":",err);
+      const errCard=mk("div","",{style:{padding:"10px",background:"#fee2e2",borderRadius:"8px",marginBottom:"8px",fontSize:"12px",color:"#b91c1c"}},[
+        `Erreur équipe "${team}" : ${err.message}`
+      ]);
+      wrap.appendChild(errCard);
+    }
   });
 
   app.appendChild(wrap);
