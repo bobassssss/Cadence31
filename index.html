@@ -218,6 +218,67 @@ input:focus,select:focus{border-color:#93c5fd;background:#fff}
   .td-cell,.th-slot{width:22px!important;min-width:22px!important}
   .th-name{min-width:80px!important;width:80px!important}
 }
+/* ── DARK MODE ───────────────────────────────────────────────────────────── */
+body.dark{background:#0f1117;color:#e2e8f0}
+body.dark .topbar{background:#1a1d27;border-color:#2d3148}
+body.dark .logo{color:#e2e8f0}
+body.dark .wlabel{color:#94a3b8}
+body.dark .btn{background:#1e2130;color:#94a3b8;border-color:#2d3148}
+body.dark .btn:active{background:#252840}
+body.dark .btn.primary{background:#3b4fd4;color:#fff;border-color:transparent}
+body.dark .btn.today{color:#818cf8;border-color:#3b4fd4;background:#1e2238}
+body.dark .btn.active{background:#3b4fd4;color:#fff;border-color:transparent}
+body.dark .btn.danger{color:#f87171;border-color:#3f2020;background:#1f1515}
+body.dark .grid-wrap{background:#1a1d27;border-color:#2d3148}
+body.dark table th,body.dark table td{border-color:#252840}
+body.dark .th-name,body.dark .th-post,body.dark .th-day,body.dark .th-slot,body.dark .th-mday{background:#1a1d27;color:#64748b}
+body.dark .th-day.today-day{color:#818cf8;background:#1a1d27}
+body.dark .th-mday.today-day{color:#818cf8;background:#1a1d27}
+body.dark .th-day.alert-day,body.dark .th-mday.alert-day{background:#2d1515!important;color:#f87171}
+body.dark .th-day.holiday,body.dark .th-mday.holiday{background:#2d1130!important;color:#e879f9}
+body.dark .th-day.school-vac,body.dark .th-mday.school-vac{background:#1f1e10}
+body.dark .td-name{background:#1a1d27;color:#94a3b8}
+body.dark .td-post{background:#1a1d27}
+body.dark .td-post input{color:#94a3b8}
+body.dark .tr-sep td.sep-name{background:#141620;color:#4f5b8a;border-color:#252840}
+body.dark .tr-sep td.sep-post{background:#141620}
+body.dark .td-tevent{background:#1e1a2e;border-color:#2d3148}
+body.dark .td-tevent-inner{color:#a78bfa}
+body.dark .td-tevent-inner.empty{color:#2d2545}
+body.dark .td-tevent-month{background:#1e1a2e}
+body.dark .td-tevent-month-inner{color:#a78bfa}
+body.dark .td-cov-lbl{background:#141620;color:#4f5b8a}
+body.dark .td-cov-post{background:#141620}
+body.dark .td-cov.c-ok{background:#0d2010;color:#4ade80}
+body.dark .td-cov.c-warn-a{background:#1f1408;color:#fb923c}
+body.dark .td-cov.c-warn-g{background:#1a1a08;color:#fbbf24}
+body.dark .td-cov.c-danger{background:#2d1010;color:#f87171}
+body.dark .td-cov.c-empty{background:#141620;color:#252840}
+body.dark .legend{background:#1a1d27;border-color:#2d3148}
+body.dark .legend h4{color:#94a3b8}
+body.dark .overlay{background:rgba(0,0,0,.7)}
+body.dark .modal{background:#1a1d27;border:1px solid #2d3148;color:#e2e8f0}
+body.dark .mfooter{border-color:#2d3148}
+body.dark label.lf{color:#94a3b8}
+body.dark input[type=text],body.dark input[type=date],body.dark input[type=number],body.dark input[type=time],body.dark input[type=email],body.dark input[type=password],body.dark select{background:#141620;border-color:#2d3148;color:#e2e8f0}
+body.dark input:focus,body.dark select:focus{border-color:#818cf8;background:#1a1d27}
+body.dark .info-box{background:#1a2035;border-color:#2d3f6b;color:#93c5fd}
+body.dark .stats-panel{background:#1a1d27}
+body.dark .stats-topbar{background:#141620}
+body.dark .stat-section{background:#141620;border-color:#2d3148}
+body.dark .tpl-overlay{background:#141620}
+body.dark .tpl-body{background:#141620}
+body.dark .tpl-cell{border-color:#2d3148}
+body.dark .tpl-week-hdr td{background:#1a2035;border-color:#2d3f6b;color:#93c5fd}
+body.dark #ls{background:#0f1117}
+body.dark .lc{background:#1a1d27;box-shadow:0 4px 32px rgba(0,0,0,.5);border:1px solid #2d3148}
+body.dark .ll{color:#e2e8f0}
+body.dark .lc input{background:#141620;border-color:#2d3148;color:#e2e8f0}
+body.dark .lc input:focus{border-color:#818cf8;background:#1a1d27}
+body.dark .lb{background:#3b4fd4}
+body.dark .td-cell.today-cell{border-color:#4f5b8a!important}
+body.dark .td-cell.selecting{background:#1e2a4a!important}
+
 </style>
 </head>
 <body>
@@ -1095,6 +1156,7 @@ function buildTopBar(){
       return btn;
     })()]:[]),
     mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Sauvegarde / Restauration",onClick:()=>{S.modal="backup";render();}},["💾"]),
+    mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Mode sombre",onClick:()=>{const dark=document.body.classList.toggle("dark");localStorage.setItem("c31dark",dark?"1":"0");render();}},[document.body.classList.contains("dark")?"☀️":"🌙"]),
     mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Aide / Signaler un problème",onClick:()=>{window.location.href="mailto:ca.dence@outlook.fr?subject="+encodeURIComponent("[Cadence31] Problème / Question");}},["❓"]),
     mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Exporter en PDF",onClick:()=>{const prev=S.modal;S.modal=null;render();setTimeout(()=>{window.print();S.modal=prev;if(prev)render();},100);}},["📤"]),
     mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px"},title:"Changer mon mot de passe",onClick:()=>{S.modal="changePwd";render();}},["🔑"]),
@@ -3663,6 +3725,8 @@ async function logout(){
   var s=document.createElement("script");
   s.src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js";
   s.onload=async function(){
+    // Restaurer le mode sombre avant tout affichage
+    if(localStorage.getItem("c31dark")==="1")document.body.classList.add("dark");
     await _initSB();
     // Charger le logo AVANT tout (indépendamment de la session)
     await _loadLoginLogo();
