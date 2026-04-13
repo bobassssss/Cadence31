@@ -1366,11 +1366,15 @@ function makeTeamSepRow(team, workDays, isMobile){
 
 // ─── HELPER ÉVÉNEMENTS D'ÉQUIPE ──────────────────────────────────────────────
 function getTeamEvents(key){
-  const v=S.teamEvents[key];
-  if(!v)return[];
-  if(typeof v==="string")return[{id:"legacy",label:v,startTime:"",endTime:""}];
-  if(Array.isArray(v))return v;
-  return[];
+  try{
+    const v=S.teamEvents[key];
+    if(!v)return[];
+    if(typeof v==="string")return[{id:"legacy",label:v,startTime:"",endTime:""}];
+    if(Array.isArray(v))return v;
+    // objet unique (ancien format)
+    if(typeof v==="object")return[{id:"legacy",label:v.label||String(v),startTime:v.startTime||"",endTime:v.endTime||""}];
+    return[];
+  }catch(e){return[];}
 }
 function setTeamEvents(key,events){
   if(events.length===0)delete S.teamEvents[key];
