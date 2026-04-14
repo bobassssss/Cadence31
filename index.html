@@ -4085,12 +4085,12 @@ function buildImportMworkModal(){
     const now=new Date();
     const curYear=now.getFullYear();
 
-    // Sélecteur de période : mois ou année civile
+    // Sélecteur de période : bimestre ou année glissante
     const modeRow=mk("div","frow",{style:{marginBottom:"10px",display:"flex",gap:"8px",alignItems:"center"}},[
       mk("label","lf",{style:{minWidth:"90px"}},["Période"]),
     ]);
-    const btnMonth=mk("button","btn",{style:{flex:"1",background:mw.yearMode?"#f3f4f6":"#2563eb",color:mw.yearMode?"#374151":"#fff"}},["Par mois"]);
-    const btnYear=mk("button","btn",{style:{flex:"1",background:mw.yearMode?"#2563eb":"#f3f4f6",color:mw.yearMode?"#fff":"#374151"}},["Année civile"]);
+    const btnMonth=mk("button","btn",{style:{flex:"1",background:mw.yearMode?"#f3f4f6":"#2563eb",color:mw.yearMode?"#374151":"#fff"}},["Par bimestre"]);
+    const btnYear=mk("button","btn",{style:{flex:"1",background:mw.yearMode?"#2563eb":"#f3f4f6",color:mw.yearMode?"#fff":"#374151"}},["Année glissante"]);
     btnMonth.addEventListener("click",()=>{
       mw.yearMode=false;
       btnMonth.style.background="#2563eb";btnMonth.style.color="#fff";
@@ -4106,29 +4106,36 @@ function buildImportMworkModal(){
     modeRow.appendChild(btnMonth);modeRow.appendChild(btnYear);
     box.appendChild(modeRow);
 
-    // Sélecteur mois
-    const monthInp=mk("input","",{type:"month"});
-    monthInp.value=`${curYear}-${String(now.getMonth()+1).padStart(2,"0")}`;
-    if(!mw.date)mw.date=`${curYear}-${String(now.getMonth()+1).padStart(2,"0")}-01`;
-    monthInp.addEventListener("change",()=>{
-      const[y,m]=monthInp.value.split("-");
-      mw.date=`${y}-${m}-01`;
+    // Sélecteur bimestre : mois de début (le mois suivant est inclus automatiquement)
+    const bimestreSel=mk("select","",{style:{flex:"1",padding:"6px 8px",fontSize:"13px",border:"1px solid #d1d5db",borderRadius:"6px"}});
+    // Proposer les bimestres glissants : mois courant et les 5 précédents
+    const bimestres=[];
+    for(let i=0;i<6;i++){
+      const d=new Date(now.getFullYear(),now.getMonth()+i,1);
+      const y=d.getFullYear(),m=d.getMonth();
+      const m2=m+1<12?m+1:0;const y2=m+1<12?y:y+1;
+      const MOIS=["jan","fév","mar","avr","mai","jun","jul","aoû","sep","oct","nov","déc"];
+      bimestres.push({
+        label:`${MOIS[m]} – ${MOIS[m2]} ${y2===y?y:y+"/"+y2}`,
+        date1:`${y}-${String(m+1).padStart(2,"0")}-01`,
+        date2:`${y2}-${String(m2+1).padStart(2,"0")}-01`,
+      });
+    }
+    bimestres.forEach((b,i)=>{
+      const opt=mk("option","",{value:String(i)},[b.label]);
+      if(i===0)opt.selected=true;
+      bimestreSel.appendChild(opt);
     });
-    const monthRow=mk("div","frow",{style:{marginBottom:"10px",display:mw.yearMode?"none":"flex"}},[
-      mk("label","lf",{style:{minWidth:"90px"}},["Mois"]),monthInp]);
+    if(!mw.bimestreIdx)mw.bimestreIdx=0;
+    bimestreSel.addEventListener("change",()=>{mw.bimestreIdx=parseInt(bimestreSel.value);});
+    const monthRow=mk("div","frow",{style:{marginBottom:"10px",display:mw.yearMode?"none":"flex",alignItems:"center",gap:"8px"}},[
+      mk("label","lf",{style:{minWidth:"90px"}},["Bimestre"]),bimestreSel]);
     box.appendChild(monthRow);
 
-    // Sélecteur année
-    const yearSel=mk("select","",{style:{flex:"1",padding:"4px",fontSize:"13px"}});
-    [curYear-1,curYear,curYear+1].forEach(y=>{
-      const opt=mk("option","",{value:String(y)},[String(y)]);
-      if(y===curYear)opt.selected=true;
-      yearSel.appendChild(opt);
-    });
-    if(!mw.year)mw.year=curYear;
-    yearSel.addEventListener("change",()=>{mw.year=parseInt(yearSel.value);});
-    const yearRow=mk("div","frow",{style:{marginBottom:"10px",display:mw.yearMode?"flex":"none"}},[
-      mk("label","lf",{style:{minWidth:"90px"}},["Année"]),yearSel]);
+    // Sélecteur année glissante : pas de sélecteur, toujours à partir du mois courant
+    const yearInfoEl=mk("div","info-box",{style:{marginBottom:"10px",fontSize:"11px",display:mw.yearMode?"block":"none"}},
+      [`Import des 12 mois à partir de ${["jan","fév","mar","avr","mai","jun","jul","aoû","sep","oct","nov","déc"][now.getMonth()]} ${now.getFullYear()}.`]);
+    const yearRow=yearInfoEl;
     box.appendChild(yearRow);
 
     const errEl=mk("p","",{style:{color:"#ef4444",fontSize:"12px",minHeight:"18px",margin:"0 0 8px"}});
@@ -4142,13 +4149,17 @@ function buildImportMworkModal(){
           // Construire la liste des mois à fetcher
           let months=[];
           if(mw.yearMode){
+            // Année glissante : 12 mois à partir du mois courant
             btnFetch.textContent="Chargement 1/12…";
-            for(let m=1;m<=12;m++){
-              months.push(`${mw.year}-${String(m).padStart(2,"0")}-01`);
+            for(let i=0;i<12;i++){
+              const d=new Date(now.getFullYear(),now.getMonth()+i,1);
+              months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`);
             }
           } else {
-            months=[mw.date||`${curYear}-01-01`];
-            btnFetch.textContent="Chargement…";
+            // Bimestre : 2 mois sélectionnés
+            const b=bimestres[mw.bimestreIdx||0];
+            months=[b.date1,b.date2];
+            btnFetch.textContent="Chargement 1/2…";
           }
 
           // Fetcher chaque mois et fusionner les données users
