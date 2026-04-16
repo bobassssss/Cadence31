@@ -5174,8 +5174,7 @@ function buildDayDetailModal(){
       });
 
     } else {
-      // ── VUE TRANSPOSÉE : créneaux en lignes, membres en colonnes ──
-      // Collecter tous les créneaux uniques triés
+      // ── VUE TRANSPOSÉE : membres en lignes, créneaux en colonnes ──
       const allSlots=[];
       const slotSet=new Set();
       Object.values(memberActs).flat().forEach(a=>{
@@ -5189,29 +5188,28 @@ function buildDayDetailModal(){
       const table=document.createElement("table");
       table.style.cssText="border-collapse:collapse;font-size:11px;width:100%;min-width:300px";
 
-      // En-tête : colonnes = membres
+      // En-tête : colonnes = créneaux horaires
       const thead=table.createTHead();
       const hr=thead.insertRow();
-      // Cellule heure
-      const thTime=mk("th","",{style:{padding:"6px 8px",background:"#f8fafc",border:"1px solid #e5e7eb",fontSize:"10px",color:"#94a3b8",whiteSpace:"nowrap",position:"sticky",left:"0",zIndex:"2"}},["Horaire"]);
-      hr.appendChild(thTime);
-      membersWithActs.forEach(m=>{
-        const th=mk("th","",{style:{padding:"6px 8px",background:"#f8fafc",border:"1px solid #e5e7eb",fontSize:"11px",fontWeight:"600",color:"#1e3a5f",textAlign:"center",minWidth:"90px",whiteSpace:"nowrap"}},
-          [m.name.split(" ")[0]]); // prénom seulement pour gagner de la place
+      const thName=mk("th","",{style:{padding:"6px 8px",background:"#f8fafc",border:"1px solid #e5e7eb",fontSize:"10px",color:"#94a3b8",position:"sticky",left:"0",zIndex:"2",minWidth:"90px"}},["Membre"]);
+      hr.appendChild(thName);
+      allSlots.forEach(slot=>{
+        const th=mk("th","",{style:{padding:"5px 4px",background:"#f8fafc",border:"1px solid #e5e7eb",fontSize:"9.5px",color:"#6b7280",textAlign:"center",whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"}},
+          [`${slot.start}`, mk("br"), `${slot.end}`]);
         hr.appendChild(th);
       });
 
-      // Corps : lignes = créneaux
+      // Corps : une ligne par membre
       const tbody=table.createTBody();
-      allSlots.forEach((slot,si)=>{
+      membersWithActs.forEach((m,mi)=>{
         const tr=tbody.insertRow();
-        tr.style.background=si%2===0?"#fff":"#f9fafb";
-        // Cellule heure
-        const tdTime=mk("td","",{style:{padding:"5px 8px",border:"1px solid #e5e7eb",color:"#6b7280",fontSize:"10px",fontVariantNumeric:"tabular-nums",whiteSpace:"nowrap",background:"#f8fafc",position:"sticky",left:"0"}},
-          [`${slot.start}–${slot.end}`]);
-        tr.appendChild(tdTime);
-        // Cellule par membre
-        membersWithActs.forEach(m=>{
+        tr.style.background=mi%2===0?"#fff":"#f9fafb";
+        // Cellule nom
+        const tdName=mk("td","",{style:{padding:"5px 8px",border:"1px solid #e5e7eb",fontWeight:"600",fontSize:"11px",color:"#1e3a5f",background:"#f8fafc",position:"sticky",left:"0",whiteSpace:"nowrap"}},
+          [m.name]);
+        tr.appendChild(tdName);
+        // Cellule par créneau
+        allSlots.forEach(slot=>{
           const act=memberActs[m.id].find(a=>a.start_time===slot.start&&a.end_time===slot.end);
           const td=document.createElement("td");
           td.style.cssText="padding:4px 6px;border:1px solid #e5e7eb;text-align:center";
@@ -5226,7 +5224,6 @@ function buildDayDetailModal(){
           }
           tr.appendChild(td);
         });
-        tbody.appendChild(tr);
       });
 
       content.appendChild(table);
