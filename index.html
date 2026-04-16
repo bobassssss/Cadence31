@@ -5138,27 +5138,68 @@ function buildDayDetailModal(){
     }
 
     // Collecter toutes les activités des membres filtrés
+    // Priorité : planning_detail (m-work) sinon planning principal
     const memberActs={};
     members.forEach(m=>{
-      memberActs[m.id]=(S.planningDetail||[]).filter(r=>r.member_id===m.id&&r.date===date)
+      const detail=(S.planningDetail||[]).filter(r=>r.member_id===m.id&&r.date===date)
         .sort((a,b)=>a.start_time.localeCompare(b.start_time));
+      if(detail.length>0){
+        memberActs[m.id]=detail;
+      } else {
+        // Fallback : créneaux AM/PM du planning principal
+        const fallback=[];
+        ["AM","PM"].forEach(slot=>{
+          const act=getAct(m.id,new Date(date+"T12:00:00"),slot);
+          const ACTS=buildACTS();
+          const ai=ACTS[act];
+          if(ai&&act&&act!=="/"&&act!=="."){
+            fallback.push({
+              member_id:m.id,date,
+              start_time:slot==="AM"?"08:00":"13:00",
+              end_time:slot==="AM"?"12:00":"17:00",
+              activity_code:act,
+              activity_name:ai.l,
+              activity_color:ai.c,
+            });
+          }
+        });
+        memberActs[m.id]=fallback;
+      }
     });
     const hasAny=Object.values(memberActs).some(a=>a.length>0);
 
-    if(!hasAny){
+    // Membres présents dans S.planning ce jour (même sans détail)
+    const membersPresent=members.filter(m=>{
+      const slots=["AM","PM"];
+      return slots.some(slot=>{
+        const act=getAct(m.id,new Date(date+"T12:00:00"),slot);
+        return act&&act!=="/"&&act!==".";
+      });
+    });
+
+    if(!hasAny&&membersPresent.length===0){
       content.appendChild(mk("p","",{style:{color:"#6b7280",fontStyle:"italic",padding:"12px 0"}},
         ["Aucun détail disponible pour cette équipe ce jour — lancez un import m-work."]));
       return;
     }
 
+    // Fusionner : membres avec détail + membres présents sans détail
+    const allVisibleIds=new Set([
+      ...Object.keys(memberActs).filter(id=>memberActs[id].length>0),
+      ...membersPresent.map(m=>m.id)
+    ]);
+    const allVisible=members.filter(m=>allVisibleIds.has(m.id));
+
     if(!S._detailTransposed){
       // ── VUE ORIGINALE : un bloc par membre ──
-      members.forEach(m=>{
+      allVisible.forEach(m=>{
         const acts=memberActs[m.id];
-        if(acts.length===0)return;
         const memberBlock=mk("div","",{style:{marginBottom:"12px",borderRadius:"8px",border:"1px solid #e5e7eb",overflow:"hidden"}});
         const hdrM=mk("div","",{style:{background:"#f8fafc",padding:"6px 10px",fontWeight:"600",fontSize:"12px",color:"#1e3a5f",borderBottom:"1px solid #e5e7eb"}},[m.name]);
         memberBlock.appendChild(hdrM);
+        if(acts.length===0){
+          memberBlock.appendChild(mk("div","",{style:{padding:"6px 10px",fontSize:"11px",color:"#9ca3af",fontStyle:"italic"}},["Pas de détail disponible"]));
+        } else {
         acts.forEach(a=>{
           const color=hexColor(a.activity_color);
           const row=mk("div","",{style:{display:"flex",alignItems:"center",gap:"8px",padding:"5px 10px",borderBottom:"1px solid #f3f4f6"}});
@@ -5170,12 +5211,13 @@ function buildDayDetailModal(){
           ]));
           memberBlock.appendChild(row);
         });
+        } // end else
         content.appendChild(memberBlock);
       });
 
     } else {
       // ── VUE CHRONOLOGIQUE : membres en lignes, créneaux horaires en colonnes ──
-      const membersWithActs=members.filter(m=>memberActs[m.id].length>0);
+      const membersWithActs=allVisible;
 
       // Déterminer la plage horaire globale (arrondie à l'heure)
       let minH=8,maxH=19;
