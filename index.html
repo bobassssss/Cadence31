@@ -5174,28 +5174,45 @@ function buildDayDetailModal(){
       });
 
     } else {
-      // ── VUE TRANSPOSÉE : membres en lignes, créneaux en colonnes ──
-      const allSlots=[];
-      const slotSet=new Set();
-      Object.values(memberActs).flat().forEach(a=>{
-        const k=`${a.start_time}|${a.end_time}`;
-        if(!slotSet.has(k)){slotSet.add(k);allSlots.push({start:a.start_time,end:a.end_time});}
-      });
-      allSlots.sort((a,b)=>a.start.localeCompare(b.start));
-
+      // ── VUE CHRONOLOGIQUE : membres en lignes, créneaux horaires en colonnes ──
       const membersWithActs=members.filter(m=>memberActs[m.id].length>0);
 
-      const table=document.createElement("table");
-      table.style.cssText="border-collapse:collapse;font-size:11px;width:100%;min-width:300px";
+      // Déterminer la plage horaire globale (arrondie à l'heure)
+      let minH=8,maxH=19;
+      Object.values(memberActs).flat().forEach(a=>{
+        if(a.start_time){const h=parseInt(a.start_time.split(":")[0]);if(h<minH)minH=h;}
+        if(a.end_time){const h=parseInt(a.end_time.split(":")[0])+(parseInt(a.end_time.split(":")[1])>0?1:0);if(h>maxH)maxH=h;}
+      });
+      // Créneaux d'une heure
+      const hours=[];
+      for(let h=minH;h<maxH;h++)hours.push(h);
 
-      // En-tête : colonnes = créneaux horaires
+      // Convertir HH:MM en fraction d'heure depuis minH
+      const toFrac=(t)=>{
+        if(!t)return 0;
+        const[h,m]=t.split(":").map(Number);
+        return h+(m/60);
+      };
+
+      const table=document.createElement("table");
+      table.style.cssText="border-collapse:collapse;font-size:11px;table-layout:fixed;width:100%";
+
+      // En-tête : colonnes = heures
       const thead=table.createTHead();
       const hr=thead.insertRow();
-      const thName=mk("th","",{style:{padding:"6px 8px",background:"#f8fafc",border:"1px solid #e5e7eb",fontSize:"10px",color:"#94a3b8",position:"sticky",left:"0",zIndex:"2",minWidth:"90px"}},["Membre"]);
+      const thName=mk("th","",{style:{
+        padding:"6px 8px",background:"#f8fafc",border:"1px solid #e5e7eb",
+        fontSize:"10px",color:"#94a3b8",position:"sticky",left:"0",zIndex:"3",
+        width:"90px",minWidth:"90px",textAlign:"left"
+      }},["Membre"]);
       hr.appendChild(thName);
-      allSlots.forEach(slot=>{
-        const th=mk("th","",{style:{padding:"5px 4px",background:"#f8fafc",border:"1px solid #e5e7eb",fontSize:"9.5px",color:"#6b7280",textAlign:"center",whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"}},
-          [`${slot.start}`, mk("br"), `${slot.end}`]);
+      hours.forEach(h=>{
+        const th=mk("th","",{style:{
+          padding:"4px 2px",background:"#f8fafc",border:"1px solid #e5e7eb",
+          fontSize:"10px",color:"#6b7280",textAlign:"center",
+          width:`${Math.floor(600/hours.length)}px`,
+          fontVariantNumeric:"tabular-nums"
+        }},[`${String(h).padStart(2,"0")}h`]);
         hr.appendChild(th);
       });
 
@@ -5204,29 +5221,66 @@ function buildDayDetailModal(){
       membersWithActs.forEach((m,mi)=>{
         const tr=tbody.insertRow();
         tr.style.background=mi%2===0?"#fff":"#f9fafb";
+
         // Cellule nom
-        const tdName=mk("td","",{style:{padding:"5px 8px",border:"1px solid #e5e7eb",fontWeight:"600",fontSize:"11px",color:"#1e3a5f",background:"#f8fafc",position:"sticky",left:"0",whiteSpace:"nowrap"}},
-          [m.name]);
+        const tdName=mk("td","",{style:{
+          padding:"5px 8px",border:"1px solid #e5e7eb",fontWeight:"600",
+          fontSize:"11px",color:"#1e3a5f",background:"#f8fafc",
+          position:"sticky",left:"0",zIndex:"2",whiteSpace:"nowrap"
+        }},[m.name]);
         tr.appendChild(tdName);
-        // Cellule par créneau
-        allSlots.forEach(slot=>{
-          const act=memberActs[m.id].find(a=>a.start_time===slot.start&&a.end_time===slot.end);
-          const td=document.createElement("td");
-          td.style.cssText="padding:4px 6px;border:1px solid #e5e7eb;text-align:center";
-          if(act){
-            const color=hexColor(act.activity_color);
-            td.style.background=color+"22";
-            const chip=mk("span","",{style:{display:"inline-block",padding:"2px 6px",borderRadius:"4px",fontSize:"10px",fontWeight:"600",background:color+"44",color}},[act.activity_code||"?"]);
-            td.appendChild(chip);
-            if(act.activity_name)td.title=act.activity_name;
-          } else {
-            td.textContent="—";td.style.color="#e5e7eb";
-          }
-          tr.appendChild(td);
+
+        // Construire un tableau des heures occupées
+        const acts=memberActs[m.id];
+        // Pour chaque heure, trouver quelle activité la couvre
+        const occupied=new Array(hours.length).fill(null); // null = vide, -1 = couvert par colspan précédent
+        acts.forEach(a=>{
+          const startF=toFrac(a.start_time);
+          const endF=toFrac(a.end_time);
+          hours.forEach((h,hi)=>{
+            const slotStart=h,slotEnd=h+1;
+            // L'activité chevauche ce créneau ?
+            if(startF<slotEnd&&endF>slotStart){
+              if(occupied[hi]===null)occupied[hi]=a;
+            }
+          });
         });
+
+        // Fusionner les cellules consécutives de la même activité (colspan)
+        let hi=0;
+        while(hi<hours.length){
+          const act=occupied[hi];
+          if(act===null){
+            // Cellule vide
+            const td=document.createElement("td");
+            td.style.cssText="border:1px solid #e5e7eb;";
+            tr.appendChild(td);
+            hi++;
+          } else {
+            // Compter combien de créneaux consécutifs cette activité couvre
+            let span=1;
+            while(hi+span<hours.length&&occupied[hi+span]&&occupied[hi+span]===act)span++;
+            const color=hexColor(act.activity_color);
+            const td=document.createElement("td");
+            td.colSpan=span;
+            td.style.cssText=`border:1px solid #e5e7eb;padding:3px 4px;background:${color}22;text-align:center;`;
+            td.title=`${act.activity_name||""} (${act.start_time}–${act.end_time})`;
+            const chip=mk("span","",{style:{
+              display:"inline-block",padding:"2px 5px",borderRadius:"4px",
+              fontSize:"10px",fontWeight:"600",background:color+"55",color,
+              overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"100%"
+            }},[act.activity_code||"?"]);
+            td.appendChild(chip);
+            tr.appendChild(td);
+            hi+=span;
+          }
+        }
       });
 
-      content.appendChild(table);
+      const wrap2=document.createElement("div");
+      wrap2.style.cssText="overflow-x:auto";
+      wrap2.appendChild(table);
+      content.appendChild(wrap2);
     }
   }
 
