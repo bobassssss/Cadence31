@@ -91,10 +91,11 @@ tr.drag-over-row td{border-top:2px solid #1e3a5f!important}
 .td-cov.c-warn-g{background:#fefce8;color:#854d0e}
 .td-cov.c-danger{background:#fee2e2;color:#b91c1c}
 .td-cov.c-empty{background:#f9fafb;color:#e5e7eb}
-.td-cell{width:32px;min-width:32px;height:28px;padding:2px;text-align:center;cursor:pointer;position:relative;user-select:none;-webkit-user-select:none}
+.td-cell{width:32px;min-width:32px;height:28px;padding:2px 2px 0 2px;text-align:center;cursor:pointer;position:relative;user-select:none;-webkit-user-select:none}
 .td-cell.selecting{outline:2px solid #2563eb;outline-offset:-2px;background:#dbeafe!important}
 .td-cell.today-cell{border-color:#93c5fd!important}
 .cell-code{font-size:9.5px;font-weight:600;display:block;line-height:24px;overflow:hidden;white-space:nowrap;padding:0 1px;border-radius:4px;height:100%}
+.cell-act2{position:absolute;bottom:1px;left:50%;transform:translateX(-50%);display:inline-flex;align-items:center;justify-content:center;padding:0 4px;border-radius:3px;font-size:7.5px;font-weight:700;height:11px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.2);z-index:2;pointer-events:none}
 .cell-dot{position:absolute;top:2px;right:2px;width:4px;height:4px;background:#3b82f6;border-radius:50%}
 .disp-badge{position:absolute;bottom:1px;right:1px;font-size:7px;font-weight:700;color:#1d4ed8;line-height:1}
 .td-mcell{width:22px;min-width:22px;height:32px;padding:0;cursor:pointer;position:relative;user-select:none;-webkit-user-select:none;vertical-align:middle}
@@ -519,13 +520,13 @@ async function loadState(){
     let from=0;
     const PAGE=1000;
     while(true){
-      const{data:pl,error}=await _sb.from("planning").select("key,act,comment,count_as").range(from,from+PAGE-1);
+      const{data:pl,error}=await _sb.from("planning").select("key,act,act2,comment,count_as").range(from,from+PAGE-1);
       if(error||!pl||pl.length===0)break;
       allRows=allRows.concat(pl);
       if(pl.length<PAGE)break;
       from+=PAGE;
     }
-    if(allRows.length>0){S.planning={};allRows.forEach(r=>{S.planning[r.key]={act:r.act,comment:r.comment||"",countAs:r.count_as||undefined};});}
+    if(allRows.length>0){S.planning={};allRows.forEach(r=>{S.planning[r.key]={act:r.act,act2:r.act2||null,comment:r.comment||"",countAs:r.count_as||undefined};});}
     // Members — triés par sort_order pour conserver l'ordre d'affichage
     const{data:mb}=await _sb.from("members").select("*").order("sort_order",{ascending:true,nullsFirst:false});
     if(mb&&mb.length>0)S.members=mb.map(r=>({id:r.id,name:r.name,team:r.team,post:r.post,email:r.email}));
@@ -574,7 +575,7 @@ async function undoLast(){
       toDelete.push(k);
     } else {
       S.planning[k]=before[k];
-      toUpsert.push({key:k,act:before[k].act,comment:before[k].comment||"",count_as:before[k].countAs||null});
+      toUpsert.push({key:k,act:before[k].act,act2:before[k].act2||null,comment:before[k].comment||"",count_as:before[k].countAs||null});
     }
     // Retirer du publishQueue — si la valeur revient à actBefore, plus besoin de publier
     const idx=S.publishQueue.findIndex(e=>e.key===k);
@@ -620,7 +621,7 @@ async function _persistPlanningEntries(entries){
   if(!_sb)return;
   try{
     const rows=Object.entries(entries).map(([k,v])=>({
-      key:k,act:v.act,comment:v.comment||"",count_as:v.countAs||null
+      key:k,act:v.act,act2:v.act2||null,comment:v.comment||"",count_as:v.countAs||null
     }));
     if(rows.length>0)await _sb.from("planning").upsert(rows,{onConflict:"key"});
   }catch(e){console.warn("Supabase planning persist error:",e);}
@@ -1582,6 +1583,15 @@ function buildWeekGrid(){
           if(ai){span.style.background=ai.bg;span.style.color=ai.c;span.style.borderRadius="4px";}else{span.textContent=ai?(ai.disp||actCode):actCode;}
           span.textContent=ai?(ai.disp||actCode):actCode;if(ai)span.style.color=ai.c;
           td.appendChild(span);
+          // Badge act2
+          if(entry.act2){
+            const ACTS2=buildACTS();const ai2=ACTS2[entry.act2];
+            if(ai2){
+              const badge=document.createElement("span");badge.className="cell-act2";
+              badge.textContent=entry.act2;badge.style.background=ai2.bg;badge.style.color=ai2.c;
+              td.appendChild(badge);
+            }
+          }
           if(entry.comment){const dot=document.createElement("span");dot.className="cell-dot";td.appendChild(dot);}
           if(isAbsent){const b=document.createElement("span");b.className="disp-badge";b.style.color="#b91c1c";b.textContent="✕";td.appendChild(b);}
           td.title=(ai?ai.l:actCode)+(entry.comment?" : "+entry.comment:"");
@@ -1813,10 +1823,13 @@ function buildActivityModal(){
   // countAs state for custom sites (toggleable)
   let pendingCode=null;
 
-  const close=()=>{S.modal=null;S.actCells=[];pendingCode=null;render();};
+  const close=()=>{S.modal=null;S.actCells=[];pendingCode=null;S._act2Pending=null;render();};
 
-  // Commit — countAs vient des paramètres du lieu (plus de choix à la saisie)
-  const commit=(code)=>{
+  // Codes secondarisables = lieux/activités personnalisés non fixes
+  const ACT2_CODES=customCodes; // tous les lieux perso peuvent être secondaires
+
+  // Commit act principal (ou act2 si demandé)
+  const commit=(code,asAct2=false)=>{
     const comment=commentInp?commentInp.value.trim():"";
     pushUndo(cells);
     const saved={};
@@ -1827,8 +1840,15 @@ function buildActivityModal(){
     });
     const countAs=site?.countAs||"present";
     cells.forEach(k=>{
-      const entry={act:code,comment};
-      if(customCodes.includes(code)&&countAs==="absent")entry.countAs="absent";
+      const existing=S.planning[k]||{};
+      let entry;
+      if(asAct2){
+        // Ajouter en secondaire — conserver l'activité principale
+        entry={...existing,act2:code};
+      } else {
+        entry={act:code,comment};
+        if(customCodes.includes(code)&&countAs==="absent")entry.countAs="absent";
+      }
       S.planning[k]=entry;
       saved[k]=entry;
     });
@@ -1853,12 +1873,44 @@ function buildActivityModal(){
   const resetDefault=()=>{pushUndo(cells);cells.forEach(k=>{delete S.planning[k];_deleteKey(k);});persist();S.modal=null;S.actCells=[];render();};
 
   let modalEl=null;
+  if(!S._act2Pending)S._act2Pending=null;
+
   function rebuildModal(){
     if(modalEl)modalEl.remove();
     const body=[];
     const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[mk("h3"),mk("button","mclose",{onClick:close},["×"])]);
     hdr.querySelector("h3").textContent=`Activité${cells.length>1?" · "+cells.length+" cases":""}`;
     body.push(hdr);
+
+    // ── Panneau choix act2 ──
+    if(S._act2Pending){
+      const {code}=S._act2Pending;
+      const ai2=ACTS[code];
+      const existingAct=S.planning[cells[0]]?.act;
+      const aiEx=existingAct?ACTS[existingAct]:null;
+      body.push(mk("div","info-box",{style:{marginBottom:"12px"}},
+        [`${ai2?.l||code} — comment souhaitez-vous l'appliquer ?`]));
+      if(aiEx){
+        body.push(mk("div","",{style:{display:"flex",gap:"8px",marginBottom:"8px"}},[
+          mk("button","btn",{style:{flex:"1",background:aiEx.bg,color:aiEx.c,borderColor:aiEx.bg},onClick:()=>{
+            S._act2Pending=null;commit(code,false);
+          }},["🔄 Remplacer "+existingAct]),
+          mk("button","btn",{style:{flex:"1",background:ai2?.bg||"#86efac",color:ai2?.c||"#166534",borderColor:ai2?.bg||"#86efac"},onClick:()=>{
+            S._act2Pending=null;commit(code,true);
+          }},["+ En secondaire"]),
+        ]));
+      }
+      body.push(mk("button","btn",{style:{width:"100%"},onClick:()=>{S._act2Pending=null;rebuildModal();}},["← Retour"]));
+      // Supprimer act2 si déjà présent
+      if(S.planning[cells[0]]?.act2){
+        body.push(mk("button","btn danger",{style:{width:"100%",marginTop:"6px"},onClick:()=>{
+          pushUndo(cells);const saved={};
+          cells.forEach(k=>{const e={...S.planning[k]};delete e.act2;S.planning[k]=e;saved[k]=e;});
+          _persistPlanningEntries(saved);S._act2Pending=null;close();
+        }},["✕ Supprimer l'activité secondaire"]));
+      }
+      buildModalEl(body);return;
+    }
       // Écran principal : liste des activités
       // Non-admin : uniquement CP, DP, TP
       const USER_ALLOWED=["CP","DP","TP"];
@@ -1871,7 +1923,18 @@ function buildActivityModal(){
           const a=ACTS[code];if(!a)return;
           const isCustom=customCodes.includes(code);
           const btn=mk("button","act-btn",{onClick:()=>{
-            if(isCustom){commit(code);}
+            if(isCustom){
+              // Vérifier si toutes les cellules ont déjà une activité principale
+              const allHaveAct=cells.every(k=>S.planning[k]?.act&&S.planning[k].act!==".");
+              const existingAct2=S.planning[cells[0]]?.act2;
+              if(allHaveAct&&ACT2_CODES.includes(code)&&S.planning[cells[0]]?.act!==code){
+                // Proposer : principale ou secondaire
+                S._act2Pending={code,cells:[...cells]};
+                rebuildModal();
+              } else {
+                commit(code);
+              }
+            }
             else{
               pendingCode=null;
               const comment=commentInp?commentInp.value.trim():"";
@@ -1921,6 +1984,11 @@ function buildActivityModal(){
         mk("button","btn",{onClick:close},["Fermer"]),
       ]));
 
+    modalEl=mk("div","modal",{},[...body]);
+    const ov=mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[modalEl]);
+    document.getElementById("app").appendChild(ov);
+  }
+  function buildModalEl(body){
     modalEl=mk("div","modal",{},[...body]);
     const ov=mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[modalEl]);
     document.getElementById("app").appendChild(ov);
