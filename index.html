@@ -4007,7 +4007,23 @@ function _mwUserToEntries(mwUser,ourMemberId){
     }
     if(act){
       const key=`${ourMemberId}|${date}|${slot}`;
-      if(!entries[key])entries[key]={act,comment};
+      if(!entries[key]){
+        entries[key]={act,comment};
+      } else {
+        // Entrée déjà existante — vérifier si l'activité est secondarisable
+        const sites=S.settings.customSites||DEFAULT_CUSTOM_SITES;
+        const nonFixed=sites.filter(s=>!s.fixed);
+        const nonFixedLabels=nonFixed.map(s=>s.label);
+        const act2Codes=nonFixed.map((s,i)=>labelToCode(s.label,i,nonFixedLabels));
+        if(act2Codes.includes(act)&&entries[key].act&&entries[key].act!==act){
+          // Activité secondarisable sur une cellule déjà remplie → mettre en act2
+          entries[key]={...entries[key],act2:act};
+        } else if(!act2Codes.includes(entries[key].act)&&act2Codes.includes(act)){
+          // La nouvelle est secondarisable, l'existante ne l'est pas → garder existante, ajouter en act2
+          entries[key]={...entries[key],act2:act};
+        }
+        // sinon on garde l'existante (activité principale écrase)
+      }
     }
   });
 
@@ -4389,7 +4405,7 @@ function buildImportMworkModal(){
 
           // Import simple — upsert uniquement, sans effacement
           ev.target.textContent="Import…";
-          const rows=Object.entries(allEntries).map(([key,v])=>({key,act:v.act,comment:v.comment||"",count_as:null}));
+          const rows=Object.entries(allEntries).map(([key,v])=>({key,act:v.act,act2:v.act2||null,comment:v.comment||"",count_as:null}));
           const chunkSize=200;
           for(let i=0;i<rows.length;i+=chunkSize){
             await _sb.from("planning").upsert(rows.slice(i,i+chunkSize),{onConflict:"key"});
