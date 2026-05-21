@@ -340,8 +340,8 @@ function _buildPosteFilterTh(){
   const th=mk("th","th-post",{rowSpan:"2",style:{cursor:"pointer",userSelect:"none"},
     title:"Filtrer par poste",
     onClick:()=>{S.modal="filtrePoste";render();}
-  },[S.filtrePoste?`🔽${S.filtrePoste}`:"Poste"]);
-  if(S.filtrePoste)th.style.color="#2563eb";
+  },[S.filtrePoste&&S.filtrePoste.size>0?`🔽 ${S.filtrePoste.size} poste${S.filtrePoste.size>1?"s":""}`:"Poste"]);
+  if(S.filtrePoste&&S.filtrePoste.size>0)th.style.color="#2563eb";
   return th;
 }
 function posteAbbr(val){
@@ -350,8 +350,8 @@ function posteAbbr(val){
   return found?found.abbr:val;
 }
 function memberMatchesPosteFilter(m){
-  if(!S.filtrePoste)return true;
-  return posteAbbr(m.post||"")===S.filtrePoste;
+  if(!S.filtrePoste||S.filtrePoste.size===0)return true;
+  return S.filtrePoste.has(posteAbbr(m.post||""));
 }
 
 const BASE_ACTS={
@@ -476,7 +476,7 @@ let S={
   },
   events:{},      // dateStr → commentaire global (conservé pour compatibilité)
   teamEvents:{},  // "teamName|dateStr" → commentaire par équipe
-  activeTeams:new Set(), showLegend:false, filtrePoste:null,
+  activeTeams:new Set(), showLegend:false, filtrePoste:new Set(),
   modal:null, editMember:null,
   actCells:[], actInitComment:"", actInitCountAs:"present",
   drag:null, touchDrag:false,
@@ -1482,18 +1482,22 @@ function buildFiltrePosteModal(){
   const grid=mk("div","",{style:{display:"flex",flexWrap:"wrap",gap:"6px",marginBottom:"12px"}});
 
   // Bouton "Tous"
-  const btnAll=mk("button","btn"+(S.filtrePoste===null?" primary":""),{
-    onClick:()=>{S.filtrePoste=null;close();}
+  const btnAll=mk("button","btn"+(S.filtrePoste.size===0?" primary":""),{
+    onClick:()=>{S.filtrePoste=new Set();render();}
   },["Tous"]);
   grid.appendChild(btnAll);
 
   // Un bouton par poste présent dans l'équipe
   usedPostes.forEach(abbr=>{
     const count=S.members.filter(m=>posteAbbr(m.post||"")===abbr).length;
-    const isActive=S.filtrePoste===abbr;
+    const isActive=S.filtrePoste.has(abbr);
     const btn=mk("button","btn"+(isActive?" primary":""),{
       style:{minWidth:"60px"},
-      onClick:()=>{S.filtrePoste=isActive?null:abbr;close();}
+      onClick:()=>{
+        if(S.filtrePoste.has(abbr))S.filtrePoste.delete(abbr);
+        else S.filtrePoste.add(abbr);
+        render();
+      }
     },[`${abbr} `,mk("span","",{style:{fontSize:"10px",opacity:".6"}},[`(${count})`])]);
     grid.appendChild(btn);
   });
@@ -1612,7 +1616,7 @@ function buildWeekGrid(){
     tbody.appendChild(makeTeamSepRow(team,workDays,false));
     if(!isCollapsed){
       tbody.appendChild(makeCoverageRow(team,workDays));
-      S.members.filter(m=>m.team===team).forEach(member=>{
+      S.members.filter(m=>m.team===team&&memberMatchesPosteFilter(m)).forEach(member=>{
         const tr=tbody.insertRow();
         if(_auth.memberId&&member.id===_auth.memberId){tr.style.background="#dbeafe";tr.style.borderLeft="3px solid #2563eb";}
         tr.appendChild(makeTdName(member));tr.appendChild(makeTdPost(member));
@@ -1726,7 +1730,7 @@ function buildMonthGrid(){
       td.title=tips.join("\n");
       covTr.appendChild(td);
     });
-    S.members.filter(m=>m.team===team).forEach(member=>{
+    S.members.filter(m=>m.team===team&&memberMatchesPosteFilter(m)).forEach(member=>{
       const tr=tbody.insertRow();
       if(_auth.memberId&&member.id===_auth.memberId){tr.style.background="#dbeafe";tr.style.borderLeft="3px solid #2563eb";}
       tr.appendChild(makeTdName(member));tr.appendChild(makeTdPost(member));
