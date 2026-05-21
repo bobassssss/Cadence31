@@ -320,25 +320,38 @@ body.dark .td-cell.selecting{background:#1e2a4a!important}
 const POSTES=[
   {label:"Directeur de groupe d'agence", abbr:"DDGA"},
   {label:"Directeur d'agence",           abbr:"DA"},
-  {label:"Chargé patrimonial",           abbr:"Patri"},
-  {label:"Chargé de clientèle",          abbr:"Char"},
-  {label:"Conseiller de clientèle",      abbr:"Cons"},
-  {label:"Conseiller d'accueil",         abbr:"Acc"},
-  {label:"Alternant",                    abbr:"Alt"},
-  {label:"Assur Part",                   abbr:"AssP"},
   {label:"Directeur Pôle Pro",           abbr:"DAP"},
   {label:"Adjoint Pôle Pro",             abbr:"AdjP"},
-  {label:"Chargé Pro",                   abbr:"ChaP"},
+  {label:"Chargé patrimonial",           abbr:"Patri"},
   {label:"Chargé Patri pro",             abbr:"PatP"},
+  {label:"Chargé de clientèle",          abbr:"Char"},
+  {label:"Chargé Pro",                   abbr:"ChaP"},
+  {label:"Conseiller de clientèle",      abbr:"Cons"},
   {label:"Conseiller pro",               abbr:"CoP"},
+  {label:"Conseiller d'accueil",         abbr:"Acc"},
   {label:"Conseiller d'accueil pro",     abbr:"AccP"},
+  {label:"Assur Part",                   abbr:"AssP"},
   {label:"Assur pro",                    abbr:"AssP"},
+  {label:"Alternant",                    abbr:"Alt"},
 ];
 // Retrouve l'abréviation depuis le label ou l'abréviation stockée
+function _buildPosteFilterTh(){
+  const usedPostes=[...new Set(S.members.map(m=>posteAbbr(m.post||"")).filter(Boolean))].sort();
+  const th=mk("th","th-post",{rowSpan:"2",style:{cursor:"pointer",userSelect:"none"},
+    title:"Filtrer par poste",
+    onClick:()=>{S.modal="filtrePoste";render();}
+  },[S.filtrePoste?`🔽${S.filtrePoste}`:"Poste"]);
+  if(S.filtrePoste)th.style.color="#2563eb";
+  return th;
+}
 function posteAbbr(val){
   if(!val)return"";
   const found=POSTES.find(p=>p.label===val||p.abbr===val);
   return found?found.abbr:val;
+}
+function memberMatchesPosteFilter(m){
+  if(!S.filtrePoste)return true;
+  return posteAbbr(m.post||"")===S.filtrePoste;
 }
 
 const BASE_ACTS={
@@ -463,7 +476,7 @@ let S={
   },
   events:{},      // dateStr → commentaire global (conservé pour compatibilité)
   teamEvents:{},  // "teamName|dateStr" → commentaire par équipe
-  activeTeams:new Set(), showLegend:false,
+  activeTeams:new Set(), showLegend:false, filtrePoste:null,
   modal:null, editMember:null,
   actCells:[], actInitComment:"", actInitCountAs:"present",
   drag:null, touchDrag:false,
@@ -1066,7 +1079,7 @@ function render(){
   if(S.modal==="settings")  app.appendChild(buildSettingsModal());
   if(S.modal==="tplApply")  app.appendChild(buildTplApplyModal());
   if(S.modal==="teamRename")app.appendChild(buildTeamRenameModal());
-  if(S.modal==="teamNote")  app.appendChild(buildTeamNoteModal());
+  if(S.modal==="filtrePoste") app.appendChild(buildFiltrePosteModal());
   if(S.modal==="navPicker") app.appendChild(buildNavPickerModal());
   if(S.modal==="stats")     app.appendChild(buildStatsModal());
   if(S.modal==="clearData") app.appendChild(buildClearModal());
@@ -1456,6 +1469,43 @@ function makeTeamSepRow(team, workDays, isMobile){
   return tr;
 }
 
+// ─── MODAL FILTRE POSTE ──────────────────────────────────────────────────────
+function buildFiltrePosteModal(){
+  const close=()=>{S.modal=null;render();};
+  const usedPostes=[...new Set(S.members.map(m=>posteAbbr(m.post||"")).filter(Boolean))].sort();
+
+  const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
+    mk("h3","",{style:{margin:0}},["Filtrer par poste"]),
+    mk("button","mclose",{onClick:close},["×"]),
+  ]);
+
+  const grid=mk("div","",{style:{display:"flex",flexWrap:"wrap",gap:"6px",marginBottom:"12px"}});
+
+  // Bouton "Tous"
+  const btnAll=mk("button","btn"+(S.filtrePoste===null?" primary":""),{
+    onClick:()=>{S.filtrePoste=null;close();}
+  },["Tous"]);
+  grid.appendChild(btnAll);
+
+  // Un bouton par poste présent dans l'équipe
+  usedPostes.forEach(abbr=>{
+    const count=S.members.filter(m=>posteAbbr(m.post||"")===abbr).length;
+    const isActive=S.filtrePoste===abbr;
+    const btn=mk("button","btn"+(isActive?" primary":""),{
+      style:{minWidth:"60px"},
+      onClick:()=>{S.filtrePoste=isActive?null:abbr;close();}
+    },[`${abbr} `,mk("span","",{style:{fontSize:"10px",opacity:".6"}},[`(${count})`])]);
+    grid.appendChild(btn);
+  });
+
+  return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[
+    mk("div","modal",{style:{maxWidth:"340px",width:"95%"}},[
+      hdr,grid,
+      mk("div","mfooter",{},[mk("button","btn",{onClick:close},["Fermer"])]),
+    ]),
+  ]);
+}
+
 function buildTeamNoteModal(){
   const {team,dateStr}=S.teamNoteEdit||{};
   if(!team||!dateStr)return mk("div");
@@ -1533,7 +1583,7 @@ function buildWeekGrid(){
   const thead=table.createTHead();
   const r1=thead.insertRow();
   r1.appendChild(buildTeamFilterTh(2));
-  r1.appendChild(mk("th","th-post",{rowSpan:"2"},["Poste"]));
+  r1.appendChild(_buildPosteFilterTh());
   workDays.forEach(({d,slots})=>{
     const tod=fmtDate(d)===todayStr,alertDay=dayHasStaffAlert(d);
     const hol=isHoliday(d),vac=isSchoolVac(d);
@@ -1623,7 +1673,7 @@ function buildMonthGrid(){
   const thead=table.createTHead();
   const r1=thead.insertRow();
   r1.appendChild(buildTeamFilterTh(2));
-  r1.appendChild(mk("th","th-post",{rowSpan:"2"},["Poste"]));
+  r1.appendChild(_buildPosteFilterTh());
   workDays.forEach(({d},idx)=>{
     const tod=fmtDate(d)===todayStr,alertDay=dayHasStaffAlert(d);
     const hol=isHoliday(d),vac=isSchoolVac(d);
