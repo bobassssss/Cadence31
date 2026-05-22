@@ -3999,9 +3999,27 @@ function _mwUserToEntries(mwUser,ourMemberId){
   const ACCUEIL_CODE=`A${n}`;  // ex: A1, A2…
   const GDV_CODE=`G${n}`;      // ex: G1, G2…
 
+  // Helper : codes secondarisables (lieux perso non fixes)
+  const sites2=S.settings.customSites||DEFAULT_CUSTOM_SITES;
+  const nonFixed2=sites2.filter(s=>!s.fixed);
+  const nonFixedLabels2=nonFixed2.map(s=>s.label);
+  const act2Codes=nonFixed2.map((s,i)=>labelToCode(s.label,i,nonFixedLabels2));
+
   const addEntry=(date,slot,act,override=false)=>{
     const key=`${ourMemberId}|${date}|${slot}`;
     if(!override&&entries[key])return;
+    if(override&&entries[key]){
+      // Passe 2 (Accueil/GDV) : si la nouvelle activité est secondarisable, mettre en act2
+      if(act2Codes.includes(act)&&entries[key].act&&entries[key].act!==act){
+        entries[key]={...entries[key],act2:act};
+        return;
+      }
+      // Si l'existante est secondarisable et la nouvelle ne l'est pas → l'existante devient act2
+      if(act2Codes.includes(entries[key].act)&&!act2Codes.includes(act)){
+        entries[key]={act,comment:"",act2:entries[key].act};
+        return;
+      }
+    }
     entries[key]={act,comment:""};
   };
 
@@ -4064,19 +4082,12 @@ function _mwUserToEntries(mwUser,ourMemberId){
       if(!entries[key]){
         entries[key]={act,comment};
       } else {
-        // Entrée déjà existante — vérifier si l'activité est secondarisable
-        const sites=S.settings.customSites||DEFAULT_CUSTOM_SITES;
-        const nonFixed=sites.filter(s=>!s.fixed);
-        const nonFixedLabels=nonFixed.map(s=>s.label);
-        const act2Codes=nonFixed.map((s,i)=>labelToCode(s.label,i,nonFixedLabels));
+        // Conflit passe 1 : secondariser si applicable
         if(act2Codes.includes(act)&&entries[key].act&&entries[key].act!==act){
-          // Activité secondarisable sur une cellule déjà remplie → mettre en act2
           entries[key]={...entries[key],act2:act};
-        } else if(!act2Codes.includes(entries[key].act)&&act2Codes.includes(act)){
-          // La nouvelle est secondarisable, l'existante ne l'est pas → garder existante, ajouter en act2
-          entries[key]={...entries[key],act2:act};
+        } else if(act2Codes.includes(entries[key].act)&&!act2Codes.includes(act)){
+          entries[key]={act,comment,act2:entries[key].act};
         }
-        // sinon on garde l'existante (activité principale écrase)
       }
     }
   });
