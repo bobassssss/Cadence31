@@ -4093,8 +4093,8 @@ function _mwUserToEntries(mwUser,ourMemberId){
   });
 
   // 2. Activités Accueil/GDV (écrasent le shift)
-  // Catalog des activités m-work (pour détection par nom)
-  const mwCatalog=S._mwState?.mwData?.json?.company?.activityCatalog||{};
+  // Catalog des activités m-work — accessible via _mwState
+  const mwCatalog=S._mwState?.activityCatalog||{};
 
   (mwUser.activities||[]).forEach(a=>{
     const type=MW_ACT_MAP[a.activityId];
@@ -4107,16 +4107,25 @@ function _mwUserToEntries(mwUser,ourMemberId){
       const act=type==="ACCUEIL"?ACCUEIL_CODE:GDV_CODE;
       addEntry(date,slot,act,true);
     } else {
-      // Activité inconnue — tenter une correspondance par nom avec nos lieux personnalisés
-      const actName=_normName(mwCatalog[a.activityId]?.name||a.name||"");
-      if(!actName)return;
-      // Chercher parmi nos lieux/activités personnalisés non fixes
+      // Activité inconnue — tenter correspondance par nom OU code m-work
+      const cat=mwCatalog[a.activityId]||{};
+      const actName=_normName(cat.name||"");
+      const actCode=_normName(cat.code||"");
+      if(!actName&&!actCode)return;
       let matchCode=null;
       nonFixed2.forEach((s,i)=>{
         const sNorm=_normName(s.label);
+        // Correspondance par label : "mmc" dans "gp mmc", "leads" dans "gp leads"
         if(actName.includes(sNorm)||sNorm.includes(actName)||
-           actName.split(" ").some(w=>w.length>2&&sNorm.includes(w))){
+           actCode.includes(sNorm)||sNorm.includes(actCode)){
           matchCode=labelToCode(s.label,i,nonFixedLabels2);
+        }
+        // Aussi tester les mots individuels
+        if(!matchCode){
+          const words=actName.split(" ");
+          if(words.some(w=>w.length>2&&sNorm.includes(w)||w.length>2&&w.includes(sNorm))){
+            matchCode=labelToCode(s.label,i,nonFixedLabels2);
+          }
         }
       });
       if(matchCode){
@@ -4371,6 +4380,7 @@ function buildImportMworkModal(){
           mw.timeOffRequests=baseData.timeOffRequestList||[];
           // Catalogue d'activités (id → {name, color, code})
           mw.activityCatalog=Object.assign(mw.activityCatalog||{},baseData.activityCatalog||{});
+          S._mwState.activityCatalog=mw.activityCatalog; // accès facile depuis _mwUserToEntries
           mw.yearMode?mw.importLabel=`Année ${mw.year}`:mw.importLabel=`${months[0].slice(0,7)}`;
 
           // Mapping membres
