@@ -4093,14 +4093,36 @@ function _mwUserToEntries(mwUser,ourMemberId){
   });
 
   // 2. Activités Accueil/GDV (écrasent le shift)
+  // Catalog des activités m-work (pour détection par nom)
+  const mwCatalog=S._mwState?.mwData?.json?.company?.activityCatalog||{};
+
   (mwUser.activities||[]).forEach(a=>{
     const type=MW_ACT_MAP[a.activityId];
-    if(!type)return;
     const date=a.startDate?.slice(0,10);
     if(!date)return;
     const slot=_mwSlot(a.startDate);
-    const act=type==="ACCUEIL"?ACCUEIL_CODE:GDV_CODE;
-    addEntry(date,slot,act,true);
+
+    if(type){
+      // Activité connue (Accueil/GDV)
+      const act=type==="ACCUEIL"?ACCUEIL_CODE:GDV_CODE;
+      addEntry(date,slot,act,true);
+    } else {
+      // Activité inconnue — tenter une correspondance par nom avec nos lieux personnalisés
+      const actName=_normName(mwCatalog[a.activityId]?.name||a.name||"");
+      if(!actName)return;
+      // Chercher parmi nos lieux/activités personnalisés non fixes
+      let matchCode=null;
+      nonFixed2.forEach((s,i)=>{
+        const sNorm=_normName(s.label);
+        if(actName.includes(sNorm)||sNorm.includes(actName)||
+           actName.split(" ").some(w=>w.length>2&&sNorm.includes(w))){
+          matchCode=labelToCode(s.label,i,nonFixedLabels2);
+        }
+      });
+      if(matchCode){
+        addEntry(date,slot,matchCode,true);
+      }
+    }
   });
 
   // 3. Demandes depuis timeOffRequests intégré dans getPlannerData (ancien système)
