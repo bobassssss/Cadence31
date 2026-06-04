@@ -4385,11 +4385,13 @@ function buildImportMworkModal(){
 
           // Mapping membres
           mw.mapping=mergedUsers.map(u=>({
-            mwId:u.id,mwName:`${u.firstName} ${u.lastName}`,
+            mwId:u.id||u._id,
+            mwName:`${u.firstName||u.firstname||u.first_name||""} ${u.lastName||u.lastname||u.last_name||""}`.trim()||u.displayName||u.name||"?",
             mwUser:u,
-            ourMember:_suggestMember(u.firstName,u.lastName),
+            ourMember:_suggestMember(u.firstName||u.firstname||u.first_name||"",u.lastName||u.lastname||u.last_name||""),
             include:true,
           }));
+          if(mergedUsers.length>0)console.log("User sample keys:",Object.keys(mergedUsers[0]).slice(0,15));
           setStep(2);
         }catch(err){
           errEl.textContent="Erreur : "+(err.message||"vérifiez le cookie");
