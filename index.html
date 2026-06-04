@@ -4025,7 +4025,7 @@ function _mwUserToEntries(mwUser,ourMemberId){
 
   // Construire la map locationId → nom depuis les données m-work
   const mwLocMap=S._mwState?.mwData?.json?.company?.locations
-    ? Object.fromEntries(S._mwState.mwData.json.company.locations.map(l=>[l.id,l.name]))
+    ? Object.fromEntries((S._mwState.mwData.json?.company?.locations||S._mwState.mwData.json?.planner?.company?.locations||[]).map(l=>[l.id,l.name]))
     : {};
   const mainLocId=mwUser.mainLocationId||"";
 
@@ -4362,10 +4362,10 @@ function buildImportMworkModal(){
             if(!resp.ok){const t=await resp.text();throw new Error(t);}
             const data=await resp.json();
             if(data.error)throw new Error(data.error);
-            if(!baseData){baseData=data;mergedUsers=data.json.planner.users.map(u=>({...u,scheduledShifts:[...u.scheduledShifts],activities:[...u.activities]}));}
+            if(!baseData){baseData=data;const userList=data.json?.planner?.users||data.json?.users||data.users||[];mergedUsers=userList.map(u=>({...u,scheduledShifts:[...u.scheduledShifts],activities:[...u.activities]}));}
             else{
               // Fusionner shifts et activities de chaque mois
-              data.json.planner.users.forEach(mu=>{
+              (data.json?.planner?.users||data.json?.users||data.users||[]).forEach(mu=>{
                 const existing=mergedUsers.find(u=>u.id===mu.id);
                 if(existing){
                   existing.scheduledShifts.push(...mu.scheduledShifts);
@@ -4375,7 +4375,7 @@ function buildImportMworkModal(){
             }
           }
           // Reconstruire mwData avec les users fusionnés
-          baseData.json.planner.users=mergedUsers;
+          if(baseData.json?.planner)baseData.json.planner.users=mergedUsers;else if(baseData.json)baseData.json.users=mergedUsers;else baseData.users=mergedUsers;
           mw.mwData=baseData;
           mw.timeOffRequests=baseData.timeOffRequestList||[];
           // Catalogue d'activités (id → {name, color, code})
