@@ -1,5 +1,6 @@
 // api/mwork-proxy.js
 const PLANNER_ID = "69aed8d03f39552d4243bd38";
+const COMPANY_ID = "693042e16ec252fe0f990934";
 
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -16,56 +17,49 @@ module.exports = async function handler(req, res) {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
   };
 
-  // 1. Essayer getPlannerData (ancien format avec noms inclus)
-  const urlOld = `https://app.m-work.co/v2/api/planner/${PLANNER_ID}/getPlannerData` +
-    `?mode=${mode}&date=${date}&companyId=693042e16ec252fe0f990934&timezone=Europe%2FParis&granularity=60`;
-
-  const oldResp = await fetch(urlOld, { headers });
-  if (oldResp.status === 401 || oldResp.status === 403)
-    return res.status(401).json({ error: "Session m-work expirée — recopiez votre cookie" });
-
-  if (oldResp.ok) {
-    // Ancien format — retourner tel quel
-    const data = await oldResp.json();
-    try {
-      const torResp = await fetch(`https://app.m-work.co/v2/api/time_off_request?scope=manager`, { headers });
-      if (torResp.ok) data.timeOffRequestList = (await torResp.json()).timeOffRequestList || [];
-    } catch(e) {}
-    data.activityCatalog = buildCatalog(data);
-    return res.status(200).json(data);
+  // 1. Bootstrap — récupère les membres avec leurs noms
+  const userNames = {};
+  try {
+    const bsResp = await fetch(
+      `https://app.m-work.co/v2/api/planner/${PLANNER_ID}/bootstrap?companyId=${COMPANY_ID}`,
+      { headers }
+    );
+    if (bsResp.ok) {
+      const bs = await bsResp.json();
+      // Chercher les membres récursivement
+      const findMembers = (obj) => {
+        if (!obj || typeof obj !== "object") return;
+        if (Array.isArray(obj)) { obj.forEach(findMembers); return; }
+        // Un membre a firstName/lastname et un _id/id
+        const uid = obj._id || obj.id || obj.userId;
+        const fn = obj.firstName || obj.firstname;
+        const ln = obj.lastName || obj.lastname;
+        if (uid && (fn || ln)) {
+          userNames[uid] = { firstName: fn || "", lastName: ln || "" };
+        }
+        Object.values(obj).forEach(findMembers);
+      };
+      findMembers(bs);
+      console.log(`Bootstrap: ${Object.keys(userNames).length} membres trouvés`);
+    }
+  } catch(e) {
+    console.error("Bootstrap error:", e.message);
   }
 
-  // 2. Fallback : user-planning (nouveau format — shifts plats par userId)
+  // 2. user-planning — shifts par userId
   const urlNew = `https://app.m-work.co/v2/api/planner/${PLANNER_ID}/user-planning` +
     `?mode=${mode}&date=${date}&timezone=Europe%2FParis&granularity=720&firstDayOfWeek=1`;
 
   const newResp = await fetch(urlNew, { headers });
+  if (newResp.status === 401 || newResp.status === 403)
+    return res.status(401).json({ error: "Session m-work expirée — recopiez votre cookie" });
   if (!newResp.ok)
     return res.status(newResp.status).json({ error: `Erreur m-work : ${newResp.status}` });
 
   const newData = await newResp.json();
   const shifts = newData.json?.users || newData.users || [];
 
-  // 3. Récupérer les noms via user/schedule pour chaque userId unique
-  const userIds = [...new Set(shifts.map(s => s.userId).filter(Boolean))];
-  const userNames = {};
-
-  await Promise.all(userIds.map(async (uid) => {
-    try {
-      const r = await fetch(
-        `https://app.m-work.co/v2/api/user/schedule?startDate=${date}&userId=${uid}`,
-        { headers }
-      );
-      if (r.ok) {
-        const d = await r.json();
-        const fn = d.schedule?.firstName || d.firstName || "";
-        const ln = d.schedule?.lastName || d.lastName || "";
-        if (fn || ln) userNames[uid] = { firstName: fn, lastName: ln };
-      }
-    } catch(e) {}
-  }));
-
-  // 4. Regrouper les shifts par userId et reconstruire le format attendu
+  // 3. Regrouper les shifts par userId
   const usersMap = {};
   shifts.forEach(shift => {
     const uid = shift.userId;
@@ -73,8 +67,7 @@ module.exports = async function handler(req, res) {
     if (!usersMap[uid]) {
       const name = userNames[uid] || {};
       usersMap[uid] = {
-        id: uid,
-        _id: uid,
+        id: uid, _id: uid,
         firstName: name.firstName || "",
         lastName: name.lastName || "",
         scheduledShifts: [],
@@ -91,15 +84,14 @@ module.exports = async function handler(req, res) {
     });
   });
 
-  // 5. Récupérer les activités (shifts de type activity)
+  // 4. Activités (accueil, GDV, MMC, leads...)
   try {
     const actUrl = `https://app.m-work.co/v2/api/planner/${PLANNER_ID}/user-activities` +
       `?mode=${mode}&date=${date}&timezone=Europe%2FParis`;
     const actResp = await fetch(actUrl, { headers });
     if (actResp.ok) {
       const actData = await actResp.json();
-      const acts = actData.json?.users || actData.users || [];
-      acts.forEach(a => {
+      (actData.json?.users || actData.users || []).forEach(a => {
         const uid = a.userId;
         if (uid && usersMap[uid]) {
           usersMap[uid].activities.push({
@@ -112,25 +104,22 @@ module.exports = async function handler(req, res) {
     }
   } catch(e) {}
 
-  // 6. time_off_request
+  // 5. time_off_request
   let timeOffRequests = [];
   try {
     const torResp = await fetch(`https://app.m-work.co/v2/api/time_off_request?scope=manager`, { headers });
     if (torResp.ok) timeOffRequests = (await torResp.json()).timeOffRequestList || [];
   } catch(e) {}
 
-  // 7. Catalogue d'activités
+  // 6. Catalogue d'activités
   const activityCatalog = buildCatalog(newData);
 
-  // Construire la réponse dans l'ancien format
-  const result = {
+  return res.status(200).json({
     users: Object.values(usersMap),
     company: newData.json?.viewConfig || {},
     timeOffRequestList: timeOffRequests,
     activityCatalog,
-  };
-
-  return res.status(200).json(result);
+  });
 };
 
 function buildCatalog(data) {
