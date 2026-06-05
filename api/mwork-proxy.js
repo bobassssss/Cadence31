@@ -17,8 +17,10 @@ module.exports = async function handler(req, res) {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
   };
 
-  // 1. Bootstrap — récupère les membres avec leurs noms
+  // 1. Bootstrap — récupère les membres, lieux et mainLocationId
   const userNames = {};
+  const bsLocations = {};
+  const bsMainLoc = {};
   try {
     const bsResp = await fetch(
       `https://app.m-work.co/v2/api/planner/${PLANNER_ID}/bootstrap?companyId=${COMPANY_ID}`,
@@ -41,6 +43,27 @@ module.exports = async function handler(req, res) {
       };
       findMembers(bs);
       console.log(`Bootstrap: ${Object.keys(userNames).length} membres trouvés`);
+      
+      // Extraire les locations et offTypes depuis bootstrap
+      const findLocations = (obj) => {
+        if (!obj || typeof obj !== "object") return;
+        if (Array.isArray(obj)) { obj.forEach(findLocations); return; }
+        if (obj.id && obj.name && (obj.address !== undefined || obj.locationType !== undefined)) {
+          bsLocations[obj.id] = obj.name;
+        }
+        Object.values(obj).forEach(findLocations);
+      };
+      findLocations(bs);
+      
+      // Stocker mainLocationId par userId
+      const findMainLoc = (obj) => {
+        if (!obj || typeof obj !== "object") return;
+        if (Array.isArray(obj)) { obj.forEach(findMainLoc); return; }
+        const uid = obj._id || obj.id || obj.userId;
+        if (uid && obj.mainLocationId) bsMainLoc[uid] = obj.mainLocationId;
+        Object.values(obj).forEach(findMainLoc);
+      };
+      findMainLoc(bs);
     }
   } catch(e) {
     console.error("Bootstrap error:", e.message);
@@ -115,8 +138,14 @@ module.exports = async function handler(req, res) {
   const activityCatalog = buildCatalog(newData);
 
   return res.status(200).json({
-    users: Object.values(usersMap),
-    company: newData.json?.viewConfig || {},
+    users: Object.values(usersMap).map(u => ({
+      ...u,
+      mainLocationId: bsMainLoc[u.id] || "",
+    })),
+    company: { 
+      ...newData.json?.viewConfig,
+      locations: Object.entries(bsLocations).map(([id,name]) => ({id, name})),
+    },
     timeOffRequestList: timeOffRequests,
     activityCatalog,
   });
