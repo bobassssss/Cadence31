@@ -4133,48 +4133,47 @@ function _mwUserToEntries(mwUser,ourMemberId){
     }
   });
 
-  // Les activités (accueil, GDV, MMC, leads) sont désormais dans scheduledShifts via activityId
-  // La passe 2 reste pour compatibilité avec l'ancien format
+  // Les activités (accueil, GDV, MMC, leads) sont dans le tableau activities séparé
+  // La demi-journée se détermine par l'heure UTC (< 11h = AM, >= 11h = PM)
   (mwUser.activities||[]).forEach(a=>{
-    const type=MW_ACT_MAP[a.activityId];
     const date=a.startDate?.slice(0,10);
-    if(!date)return;
-    const slot=_mwSlot(a.startDate);
+    if(!date||!a.activityId)return;
+    const hourUTC=a.startDate?parseInt(a.startDate.slice(11,13)):0;
+    const slot=hourUTC<11?"AM":"PM";
 
+    const type=MW_ACT_MAP[a.activityId];
+    let act=null;
     if(type){
-      // Activité connue (Accueil/GDV)
-      const act=type==="ACCUEIL"?ACCUEIL_CODE:GDV_CODE;
-      addEntry(date,slot,act,true);
+      act=type==="ACCUEIL"?ACCUEIL_CODE:GDV_CODE;
     } else {
-      // Activité inconnue — tenter correspondance par nom OU code m-work
       const cat=mwCatalog[a.activityId]||{};
       const actName=_normName(cat.name||"");
       const actCode=_normName(cat.code||"");
-      if(!actName&&!actCode)return;
-      let matchCode=null;
-      nonFixed2.forEach((s,i)=>{
-        const sNorm=_normName(s.label);
-        // Correspondance par label : "mmc" dans "gp mmc", "leads" dans "gp leads"
+      nonFixed2.forEach((site,i)=>{
+        if(act)return;
+        const sNorm=_normName(site.label);
         if(actName.includes(sNorm)||sNorm.includes(actName)||
-           actCode.includes(sNorm)||sNorm.includes(actCode)){
-          matchCode=labelToCode(s.label,i,nonFixedLabels2);
-        }
-        // Aussi tester les mots individuels
-        if(!matchCode){
-          const words=actName.split(" ");
-          if(words.some(w=>w.length>2&&sNorm.includes(w)||w.length>2&&w.includes(sNorm))){
-            matchCode=labelToCode(s.label,i,nonFixedLabels2);
-          }
+           actCode.includes(sNorm)||sNorm.includes(actCode)||
+           actName.split(" ").some(w=>w.length>2&&(sNorm.includes(w)||w.includes(sNorm)))){
+          act=labelToCode(site.label,i,nonFixedLabels2);
         }
       });
-      if(matchCode){
-        addEntry(date,slot,matchCode,true);
+    }
+
+    if(act){
+      const key=`${ourMemberId}|${date}|${slot}`;
+      if(!entries[key]){
+        entries[key]={act,comment:""};
+      } else if(act2Codes.includes(act)&&entries[key].act&&entries[key].act!==act){
+        entries[key]={...entries[key],act2:act};
+      } else if(act2Codes.includes(entries[key].act)&&!act2Codes.includes(act)){
+        entries[key]={act,comment:"",act2:entries[key].act};
+      } else if(!act2Codes.includes(entries[key].act)){
+        entries[key]={act,comment:""}; // activité écrase le shift (priorité)
       }
     }
   });
-
-  // 3. Demandes depuis timeOffRequests intégré dans getPlannerData (ancien système)
-  // Gardé pour compatibilité mais normalement vide
+  // 3. Demandes depuis timeOffRequests intégré (compatibilité)
   (mwUser.timeOffRequests||[]).forEach(r=>{
     if(r.status==="DENIED")return;
     _processTimeOffRequest(r, mwUser.id, addEntry);
