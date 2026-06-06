@@ -17,10 +17,11 @@ module.exports = async function handler(req, res) {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
   };
 
-  // 1. Bootstrap — récupère les membres, lieux et mainLocationId
+  // 1. Bootstrap — noms, locations, mainLocationId
   const userNames = {};
   const bsLocations = {};
   const bsMainLoc = {};
+
   try {
     const bsResp = await fetch(
       `https://app.m-work.co/v2/api/planner/${PLANNER_ID}/bootstrap?companyId=${COMPANY_ID}`,
@@ -28,48 +29,26 @@ module.exports = async function handler(req, res) {
     );
     if (bsResp.ok) {
       const bs = await bsResp.json();
-      // Chercher les membres récursivement
-      const findMembers = (obj) => {
+      const scan = (obj) => {
         if (!obj || typeof obj !== "object") return;
-        if (Array.isArray(obj)) { obj.forEach(findMembers); return; }
-        // Un membre a firstName/lastname et un _id/id
+        if (Array.isArray(obj)) { obj.forEach(scan); return; }
+        // Membres
         const uid = obj._id || obj.id || obj.userId;
         const fn = obj.firstName || obj.firstname;
         const ln = obj.lastName || obj.lastname;
-        if (uid && (fn || ln)) {
-          userNames[uid] = { firstName: fn || "", lastName: ln || "" };
-        }
-        Object.values(obj).forEach(findMembers);
-      };
-      findMembers(bs);
-      console.log(`Bootstrap: ${Object.keys(userNames).length} membres trouvés`);
-      
-      // Extraire les locations et offTypes depuis bootstrap
-      const findLocations = (obj) => {
-        if (!obj || typeof obj !== "object") return;
-        if (Array.isArray(obj)) { obj.forEach(findLocations); return; }
-        if (obj.id && obj.name && (obj.address !== undefined || obj.locationType !== undefined)) {
-          bsLocations[obj.id] = obj.name;
-        }
-        Object.values(obj).forEach(findLocations);
-      };
-      findLocations(bs);
-      
-      // Stocker mainLocationId par userId
-      const findMainLoc = (obj) => {
-        if (!obj || typeof obj !== "object") return;
-        if (Array.isArray(obj)) { obj.forEach(findMainLoc); return; }
-        const uid = obj._id || obj.id || obj.userId;
+        if (uid && (fn || ln)) userNames[uid] = { firstName: fn||"", lastName: ln||"" };
+        // Locations
+        if (uid && obj.name && (obj.address !== undefined || obj.locationType !== undefined))
+          bsLocations[uid] = obj.name;
+        // mainLocationId par user
         if (uid && obj.mainLocationId) bsMainLoc[uid] = obj.mainLocationId;
-        Object.values(obj).forEach(findMainLoc);
+        Object.values(obj).forEach(scan);
       };
-      findMainLoc(bs);
+      scan(bs);
     }
-  } catch(e) {
-    console.error("Bootstrap error:", e.message);
-  }
+  } catch(e) { console.error("Bootstrap error:", e.message); }
 
-  // 2. user-planning — shifts par userId
+  // 2. user-planning — users avec scheduledShifts déjà imbriqués
   const urlNew = `https://app.m-work.co/v2/api/planner/${PLANNER_ID}/user-planning` +
     `?mode=${mode}&date=${date}&timezone=Europe%2FParis&granularity=720&firstDayOfWeek=1`;
 
@@ -80,71 +59,38 @@ module.exports = async function handler(req, res) {
     return res.status(newResp.status).json({ error: `Erreur m-work : ${newResp.status}` });
 
   const newData = await newResp.json();
-  const shifts = newData.json?.users || newData.users || [];
+  const rawUsers = newData.json?.users || [];
 
-  // 3. Regrouper les shifts par userId
-  const usersMap = {};
-  shifts.forEach(shift => {
-    const uid = shift.userId;
-    if (!uid) return;
-    if (!usersMap[uid]) {
-      const name = userNames[uid] || {};
-      usersMap[uid] = {
-        id: uid, _id: uid,
-        firstName: name.firstName || "",
-        lastName: name.lastName || "",
-        scheduledShifts: [],
-        activities: [],
-      };
-    }
-    usersMap[uid].scheduledShifts.push({
-      planningDate: shift.planningDate,
-      dayPart: shift.dayPart,
-      type: shift.type,
-      locationId: shift.locationId,
-      startDate: shift.startDate,
-      endDate: shift.endDate,
-    });
+  // 3. Enrichir chaque user avec nom + mainLocationId depuis bootstrap
+  const users = rawUsers.map(u => {
+    const uid = u.userId;
+    const name = userNames[uid] || {};
+    return {
+      ...u,
+      id: uid,
+      _id: uid,
+      firstName: name.firstName || u.firstName || "",
+      lastName: name.lastName || u.lastName || "",
+      mainLocationId: bsMainLoc[uid] || u.mainLocationId || "",
+      activities: u.activities || [],
+    };
   });
 
-  // 4. Activités (accueil, GDV, MMC, leads...)
-  try {
-    const actUrl = `https://app.m-work.co/v2/api/planner/${PLANNER_ID}/user-activities` +
-      `?mode=${mode}&date=${date}&timezone=Europe%2FParis`;
-    const actResp = await fetch(actUrl, { headers });
-    if (actResp.ok) {
-      const actData = await actResp.json();
-      (actData.json?.users || actData.users || []).forEach(a => {
-        const uid = a.userId;
-        if (uid && usersMap[uid]) {
-          usersMap[uid].activities.push({
-            activityId: a.activityId,
-            startDate: a.startDate,
-            endDate: a.endDate,
-          });
-        }
-      });
-    }
-  } catch(e) {}
-
-  // 5. time_off_request
+  // 4. time_off_request
   let timeOffRequests = [];
   try {
     const torResp = await fetch(`https://app.m-work.co/v2/api/time_off_request?scope=manager`, { headers });
     if (torResp.ok) timeOffRequests = (await torResp.json()).timeOffRequestList || [];
   } catch(e) {}
 
-  // 6. Catalogue d'activités
+  // 5. Catalogue d'activités
   const activityCatalog = buildCatalog(newData);
 
   return res.status(200).json({
-    users: Object.values(usersMap).map(u => ({
-      ...u,
-      mainLocationId: bsMainLoc[u.id] || "",
-    })),
-    company: { 
+    users,
+    company: {
       ...newData.json?.viewConfig,
-      locations: Object.entries(bsLocations).map(([id,name]) => ({id, name})),
+      locations: Object.entries(bsLocations).map(([id, name]) => ({ id, name })),
     },
     timeOffRequestList: timeOffRequests,
     activityCatalog,
