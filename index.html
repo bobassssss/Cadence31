@@ -4023,9 +4023,15 @@ function _mwUserToEntries(mwUser,ourMemberId){
     entries[key]={act,comment:""};
   };
 
-  // Construire la map locationId → nom depuis les données m-work
-  const mwLocMap=S._mwState?.mwData?.json?.company?.locations
-    ? Object.fromEntries((S._mwState.mwData.json?.company?.locations||S._mwState.mwData.json?.planner?.company?.locations||[]).map(l=>[l.id,l.name]))
+  // Construire la map locationId → nom depuis les données m-work (supporte ancien et nouveau format)
+  const mwData=S._mwState?.mwData||{};
+  const locations=
+    mwData.json?.company?.locations ||
+    mwData.json?.planner?.company?.locations ||
+    mwData.company?.locations ||
+    [];
+  const mwLocMap=locations.length>0
+    ? Object.fromEntries(locations.map(l=>[l.id,l.name]))
     : {};
   const mainLocId=mwUser.mainLocationId||"";
 
@@ -4362,7 +4368,7 @@ function buildImportMworkModal(){
             if(!resp.ok){const t=await resp.text();throw new Error(t);}
             const data=await resp.json();
             if(data.error)throw new Error(data.error);
-            if(!baseData){baseData=data;const userList=data.json?.planner?.users||data.json?.users||data.users||[];mergedUsers=userList.map(u=>({...u,scheduledShifts:[...u.scheduledShifts],activities:[...u.activities]}));}
+            if(!baseData){baseData=data;const userList=data.json?.planner?.users||data.json?.users||data.users||[];mergedUsers=userList.map(u=>({...u,scheduledShifts:[...(u.scheduledShifts||[])],activities:[...(u.activities||[])]}));}
             else{
               // Fusionner shifts et activities de chaque mois
               (data.json?.planner?.users||data.json?.users||data.users||[]).forEach(mu=>{
