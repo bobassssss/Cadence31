@@ -4033,6 +4033,10 @@ function _mwUserToEntries(mwUser,ourMemberId){
   const mwLocMap=locations.length>0
     ? Object.fromEntries(locations.map(l=>[l.id,l.name]))
     : {};
+  console.log("mwLocMap size:",Object.keys(mwLocMap).length);
+  console.log("scheduledShifts:",mwUser.scheduledShifts?.length,"activities:",mwUser.activities?.length);
+  console.log("mainLocId:",mwUser.mainLocationId);
+  if(mwUser.scheduledShifts?.length>0)console.log("First shift:",JSON.stringify(mwUser.scheduledShifts[0]));
   const mainLocId=mwUser.mainLocationId||"";
 
   // Résoudre un nom d'agence m-work → code activité de notre app (EQ1, EQ2, site perso…)
