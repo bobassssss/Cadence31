@@ -4066,33 +4066,64 @@ function _mwUserToEntries(mwUser,ourMemberId){
   }
 
   // 1. Shifts de base (présence / absence)
+  const mwCatalog=S._mwState?.activityCatalog||{};
+
   mwUser.scheduledShifts.forEach(s=>{
     const date=s.planningDate;
     const slot=s.dayPart;
     if(!date||!slot)return;
     let act,comment="";
-    if(s.type==="office"){
+
+    if(s.activityId){
+      // Activité embarquée dans le shift (accueil, GDV, MMC, leads…)
+      const type=MW_ACT_MAP[s.activityId];
+      if(type){
+        act=type==="ACCUEIL"?ACCUEIL_CODE:GDV_CODE;
+      } else {
+        // Activité inconnue — tenter correspondance par nom/code
+        const cat=mwCatalog[s.activityId]||{};
+        const actName=_normName(cat.name||"");
+        const actCode=_normName(cat.code||"");
+        let matchCode=null;
+        nonFixed2.forEach((site,i)=>{
+          const sNorm=_normName(site.label);
+          if(actName.includes(sNorm)||sNorm.includes(actName)||
+             actCode.includes(sNorm)||sNorm.includes(actCode)){
+            matchCode=labelToCode(site.label,i,nonFixedLabels2);
+          }
+          if(!matchCode){
+            const words=actName.split(" ");
+            if(words.some(w=>w.length>2&&(sNorm.includes(w)||w.includes(sNorm)))){
+              matchCode=labelToCode(site.label,i,nonFixedLabels2);
+            }
+          }
+        });
+        if(matchCode)act=matchCode;
+      }
+    } else if(s.type==="office"){
       const locId=s.locationId||"";
       if(MW_LOC_MAP[locId]){
-        // Lieu spécial connu (Formation, CRC, Réunion…)
         act=MW_LOC_MAP[locId];
       } else if(locId&&locId!==mainLocId){
-        // Agence différente → chercher le code activité correspondant
         const locName=mwLocMap[locId]||"";
         act=_mwLocToActCode(locName)||".";
-        if(act===".")comment=locName; // non trouvé → présent avec commentaire
+        if(act===".")comment=locName;
       } else {
         act=".";
       }
+    } else if(s.type==="remote"){
+      act="TP"; // Télétravail prévu
     } else if(s.type==="off"){
       act=s.offTypeId?MW_OFFTYPE_MAP[s.offTypeId]||"O":"/";
+    } else if(s.type==="not_working"){
+      act="/";
     }
+
     if(act){
       const key=`${ourMemberId}|${date}|${slot}`;
       if(!entries[key]){
         entries[key]={act,comment};
       } else {
-        // Conflit passe 1 : secondariser si applicable
         if(act2Codes.includes(act)&&entries[key].act&&entries[key].act!==act){
           entries[key]={...entries[key],act2:act};
         } else if(act2Codes.includes(entries[key].act)&&!act2Codes.includes(act)){
@@ -4102,10 +4133,8 @@ function _mwUserToEntries(mwUser,ourMemberId){
     }
   });
 
-  // 2. Activités Accueil/GDV (écrasent le shift)
-  // Catalog des activités m-work — accessible via _mwState
-  const mwCatalog=S._mwState?.activityCatalog||{};
-
+  // Les activités (accueil, GDV, MMC, leads) sont désormais dans scheduledShifts via activityId
+  // La passe 2 reste pour compatibilité avec l'ancien format
   (mwUser.activities||[]).forEach(a=>{
     const type=MW_ACT_MAP[a.activityId];
     const date=a.startDate?.slice(0,10);
