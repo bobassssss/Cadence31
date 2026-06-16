@@ -96,6 +96,7 @@ tr.drag-over-row td{border-top:2px solid #1e3a5f!important}
 .td-cell.today-cell{border-color:#93c5fd!important}
 .cell-code{font-size:9.5px;font-weight:600;display:block;line-height:24px;overflow:hidden;white-space:nowrap;padding:0 1px;border-radius:4px;height:100%}
 .cell-act2{position:absolute;bottom:1px;left:50%;transform:translateX(-50%);display:inline-flex;align-items:center;justify-content:center;padding:0 4px;border-radius:3px;font-size:7.5px;font-weight:700;height:11px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.2);z-index:2;pointer-events:none}
+.cell-draft{outline:1.5px dashed currentColor;outline-offset:-2px;opacity:.85}
 .cell-dot{position:absolute;top:2px;right:2px;width:4px;height:4px;background:#3b82f6;border-radius:50%}
 .disp-badge{position:absolute;bottom:1px;right:1px;font-size:7px;font-weight:700;color:#1d4ed8;line-height:1}
 .td-mcell{width:22px;min-width:22px;height:32px;padding:0;cursor:pointer;position:relative;user-select:none;-webkit-user-select:none;vertical-align:middle}
@@ -533,13 +534,13 @@ async function loadState(){
     let from=0;
     const PAGE=1000;
     while(true){
-      const{data:pl,error}=await _sb.from("planning").select("key,act,act2,comment,count_as").range(from,from+PAGE-1);
+      const{data:pl,error}=await _sb.from("planning").select("key,act,act2,comment,count_as,draft").range(from,from+PAGE-1);
       if(error||!pl||pl.length===0)break;
       allRows=allRows.concat(pl);
       if(pl.length<PAGE)break;
       from+=PAGE;
     }
-    if(allRows.length>0){S.planning={};allRows.forEach(r=>{S.planning[r.key]={act:r.act,act2:r.act2||null,comment:r.comment||"",countAs:r.count_as||undefined};});}
+    if(allRows.length>0){S.planning={};allRows.forEach(r=>{S.planning[r.key]={act:r.act,act2:r.act2||null,comment:r.comment||"",countAs:r.count_as||undefined,draft:r.draft||false};});}
     // Members — triés par sort_order pour conserver l'ordre d'affichage
     const{data:mb}=await _sb.from("members").select("*").order("sort_order",{ascending:true,nullsFirst:false});
     if(mb&&mb.length>0)S.members=mb.map(r=>({id:r.id,name:r.name,team:r.team,post:r.post,email:r.email}));
@@ -634,7 +635,7 @@ async function _persistPlanningEntries(entries){
   if(!_sb)return;
   try{
     const rows=Object.entries(entries).map(([k,v])=>({
-      key:k,act:v.act,act2:v.act2||null,comment:v.comment||"",count_as:v.countAs||null
+      key:k,act:v.act,act2:v.act2||null,comment:v.comment||"",count_as:v.countAs||null,draft:v.draft||false
     }));
     if(rows.length>0)await _sb.from("planning").upsert(rows,{onConflict:"key"});
   }catch(e){console.warn("Supabase planning persist error:",e);}
@@ -1633,6 +1634,7 @@ function buildWeekGrid(){
           td.className="td-cell"+(isSel?" selecting":"")+(isToday?" today-cell":"");
           td.dataset.key=key;
           if(ai&&!isSel){td.style.background=ai.bg;td.style.borderRadius="4px";}
+          if(entry.draft)td.classList.add("cell-draft");
           const span=document.createElement("span");span.className="cell-code";
           if(ai){span.style.background=ai.bg;span.style.color=ai.c;span.style.borderRadius="4px";}else{span.textContent=ai?(ai.disp||actCode):actCode;}
           span.textContent=ai?(ai.disp||actCode):actCode;if(ai)span.style.color=ai.c;
@@ -4133,46 +4135,50 @@ function _mwUserToEntries(mwUser,ourMemberId){
     }
   });
 
-  // Les activités (accueil, GDV, MMC, leads) sont dans le tableau activities séparé
-  // La demi-journée se détermine par l'heure UTC (< 11h = AM, >= 11h = PM)
-  (mwUser.activities||[]).forEach(a=>{
-    const date=a.startDate?.slice(0,10);
-    if(!date||!a.activityId)return;
-    const hourUTC=a.startDate?parseInt(a.startDate.slice(11,13)):0;
-    const slot=hourUTC<11?"AM":"PM";
-
-    const type=MW_ACT_MAP[a.activityId];
-    let act=null;
-    if(type){
-      act=type==="ACCUEIL"?ACCUEIL_CODE:GDV_CODE;
-    } else {
-      const cat=mwCatalog[a.activityId]||{};
-      const actName=_normName(cat.name||"");
-      const actCode=_normName(cat.code||"");
-      nonFixed2.forEach((site,i)=>{
-        if(act)return;
-        const sNorm=_normName(site.label);
-        if(actName.includes(sNorm)||sNorm.includes(actName)||
-           actCode.includes(sNorm)||sNorm.includes(actCode)||
-           actName.split(" ").some(w=>w.length>2&&(sNorm.includes(w)||w.includes(sNorm)))){
-          act=labelToCode(site.label,i,nonFixedLabels2);
-        }
-      });
-    }
-
-    if(act){
-      const key=`${ourMemberId}|${date}|${slot}`;
-      if(!entries[key]){
-        entries[key]={act,comment:""};
-      } else if(act2Codes.includes(act)&&entries[key].act&&entries[key].act!==act){
-        entries[key]={...entries[key],act2:act};
-      } else if(act2Codes.includes(entries[key].act)&&!act2Codes.includes(act)){
-        entries[key]={act,comment:"",act2:entries[key].act};
-      } else if(!act2Codes.includes(entries[key].act)){
-        entries[key]={act,comment:""}; // activité écrase le shift (priorité)
+  // Traiter d'abord les activités publiées (prioritaires, sans flag draft)
+  // puis les draftActivities seulement pour les créneaux non couverts (avec flag draft)
+  const processActivities=(list,isDraft)=>{
+    list.forEach(a=>{
+      const date=a.startDate?.slice(0,10);
+      if(!date||!a.activityId)return;
+      const slot=hourUTC(a.startDate)<11?"AM":"PM";
+      const type=MW_ACT_MAP[a.activityId];
+      let act=null;
+      if(type){
+        act=type==="ACCUEIL"?ACCUEIL_CODE:GDV_CODE;
+      } else {
+        const cat=mwCatalog[a.activityId]||{};
+        const actName=_normName(cat.name||"");
+        const actCode=_normName(cat.code||"");
+        nonFixed2.forEach((site,i)=>{
+          if(act)return;
+          const sNorm=_normName(site.label);
+          if(actName.includes(sNorm)||sNorm.includes(actName)||
+             actCode.includes(sNorm)||sNorm.includes(actCode)||
+             actName.split(" ").some(w=>w.length>2&&(sNorm.includes(w)||w.includes(sNorm)))){
+            act=labelToCode(site.label,i,nonFixedLabels2);
+          }
+        });
       }
-    }
-  });
+      if(act){
+        const key=`${ourMemberId}|${date}|${slot}`;
+        if(!entries[key]){
+          entries[key]={act,comment:"",draft:isDraft};
+        } else if(!isDraft){
+          // Activité publiée écrase le draft
+          entries[key]={act,comment:"",draft:false};
+        } else if(act2Codes.includes(act)&&entries[key].act&&entries[key].act!==act){
+          entries[key]={...entries[key],act2:act};
+        } else if(act2Codes.includes(entries[key].act)&&!act2Codes.includes(act)){
+          entries[key]={act,comment:"",draft:isDraft,act2:entries[key].act};
+        }
+      }
+    });
+  };
+
+  processActivities(mwUser.activities||[], false);
+  processActivities(mwUser.draftActivities||[], true);
+
   // 3. Demandes depuis timeOffRequests intégré (compatibilité)
   (mwUser.timeOffRequests||[]).forEach(r=>{
     if(r.status==="DENIED")return;
