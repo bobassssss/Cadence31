@@ -4137,6 +4137,7 @@ function _mwUserToEntries(mwUser,ourMemberId){
 
   // Traiter d'abord les activités publiées (prioritaires, sans flag draft)
   // puis les draftActivities seulement pour les créneaux non couverts (avec flag draft)
+  const hourUTC=(d)=>d?parseInt(d.slice(11,13)):0;
   const processActivities=(list,isDraft)=>{
     list.forEach(a=>{
       const date=a.startDate?.slice(0,10);
