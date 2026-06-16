@@ -78,6 +78,7 @@ module.exports = async function handler(req, res) {
       mainLocationId: bsMainLoc[uid] || "",
       scheduledShifts: u.scheduledShifts || [],
       activities: u.activities || [],
+      draftActivities: u.draftActivities || [],
     };
   });
 
