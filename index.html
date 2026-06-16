@@ -4165,13 +4165,18 @@ function _mwUserToEntries(mwUser,ourMemberId){
         const key=`${ourMemberId}|${date}|${slot}`;
         if(!entries[key]){
           entries[key]={act,comment:"",draft:isDraft};
-        } else if(!isDraft){
-          // Activité publiée écrase le draft
-          entries[key]={act,comment:"",draft:false};
-        } else if(act2Codes.includes(act)&&entries[key].act&&entries[key].act!==act){
-          entries[key]={...entries[key],act2:act};
-        } else if(act2Codes.includes(entries[key].act)&&!act2Codes.includes(act)){
-          entries[key]={act,comment:"",draft:isDraft,act2:entries[key].act};
+        } else {
+          const existing=entries[key];
+          // Activité secondarisable (MMC, Leads) → mettre en act2
+          if(act2Codes.includes(act)&&existing.act&&existing.act!==act){
+            entries[key]={...existing,act2:act};
+          } else if(act2Codes.includes(existing.act)&&!act2Codes.includes(act)){
+            // L'existante est secondaire, la nouvelle est principale
+            entries[key]={act,comment:"",draft:isDraft,act2:existing.act};
+          } else if(!isDraft){
+            // Activité publiée principale écrase le draft principal
+            entries[key]={act,comment:"",draft:false};
+          }
         }
       }
     });
