@@ -15,16 +15,16 @@ module.exports = async function handler(req, res) {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
   };
 
-  // 1. Bootstrap — noms, locations, mainLocationId, catalogue d'activités
-  const userNames = {}, bsLocations = {}, bsMainLoc = {}, activityCatalog = {};
-
+  // 1. Bootstrap — noms membres + locations + catalogue activités
+  const userNames = {}, activityCatalog = {};
+  let bsRaw = null;
   try {
     const bsResp = await fetch(
       `https://app.m-work.co/v2/api/planner/${PLANNER_ID}/bootstrap?companyId=${COMPANY_ID}`,
       { headers }
     );
     if (bsResp.ok) {
-      const bs = await bsResp.json();
+      bsRaw = await bsResp.json();
       const scan = (obj) => {
         if (!obj || typeof obj !== "object") return;
         if (Array.isArray(obj)) { obj.forEach(scan); return; }
@@ -33,13 +33,8 @@ module.exports = async function handler(req, res) {
         const fn = obj.firstName || obj.firstname;
         const ln = obj.lastName || obj.lastname;
         if (id && (fn || ln)) userNames[id] = { firstName: fn||"", lastName: ln||"" };
-        // Locations
-        if (id && obj.name && obj.address !== undefined) bsLocations[id] = obj.name;
-        if (id && obj.name && obj.locationType !== undefined) bsLocations[id] = obj.name;
-        // mainLocationId
-        if (id && obj.mainLocationId) bsMainLoc[id] = obj.mainLocationId;
-        // Catalogue activités (ont un name + un externalId ou code)
-        if (id && obj.name && (obj.externalId || obj.code || obj.color)) {
+        // Catalogue activités
+        if (id && obj.name && (obj.externalId || obj.color)) {
           activityCatalog[id] = {
             name: obj.name,
             code: obj.externalId || obj.code || obj.name,
@@ -48,12 +43,51 @@ module.exports = async function handler(req, res) {
         }
         Object.values(obj).forEach(scan);
       };
-      scan(bs);
-      console.log(`Bootstrap: ${Object.keys(userNames).length} membres, ${Object.keys(bsLocations).length} lieux, ${Object.keys(activityCatalog).length} activités`);
+      scan(bsRaw);
     }
-  } catch(e) { console.error("Bootstrap error:", e.message); }
+  } catch(e) { console.error("Bootstrap:", e.message); }
 
-  // 2. user-planning
+  // 2. Locations via endpoint dédié (fallback sur bootstrap)
+  const locationNames = {};
+  for (const url of [
+    `https://app.m-work.co/v2/api/planner/${PLANNER_ID}/locations`,
+    `https://app.m-work.co/v2/api/location?companyId=${COMPANY_ID}`,
+    `https://app.m-work.co/v2/api/locations?companyId=${COMPANY_ID}`,
+  ]) {
+    try {
+      const r = await fetch(url, { headers });
+      if (r.ok) {
+        const d = await r.json();
+        const scan = (obj) => {
+          if (!obj || typeof obj !== "object") return;
+          if (Array.isArray(obj)) { obj.forEach(scan); return; }
+          const id = obj._id || obj.id;
+          if (id && obj.name && typeof obj.name === "string" && obj.name.length > 0) {
+            locationNames[id] = obj.name;
+          }
+          Object.values(obj).forEach(scan);
+        };
+        scan(d);
+        if (Object.keys(locationNames).length > 0) break;
+      }
+    } catch(e) {}
+  }
+  // Fallback : scanner le bootstrap pour les locations
+  if (Object.keys(locationNames).length === 0 && bsRaw) {
+    const scan = (obj) => {
+      if (!obj || typeof obj !== "object") return;
+      if (Array.isArray(obj)) { obj.forEach(scan); return; }
+      const id = obj._id || obj.id;
+      if (id && obj.name && !obj.firstName && !obj.lastName) {
+        locationNames[id] = obj.name;
+      }
+      Object.values(obj).forEach(scan);
+    };
+    scan(bsRaw);
+  }
+  console.log(`Locations trouvées: ${Object.keys(locationNames).length}`);
+
+  // 3. user-planning
   const urlNew = `https://app.m-work.co/v2/api/planner/${PLANNER_ID}/user-planning` +
     `?mode=${mode}&date=${date}&timezone=Europe%2FParis&granularity=720&firstDayOfWeek=1`;
 
@@ -66,34 +100,44 @@ module.exports = async function handler(req, res) {
   const newData = await newResp.json();
   const rawUsers = newData.json?.users || [];
 
-  // 3. Enrichir avec noms + mainLocationId
+  // 4. Enrichir users — noms + mainLocationId (location la plus fréquente dans ses shifts)
   const users = rawUsers.map(u => {
     const uid = u.userId;
     const name = userNames[uid] || {};
+
+    // mainLocationId = locationId le plus fréquent dans les shifts "office" de cet user
+    const locCounts = {};
+    (u.scheduledShifts||[]).forEach(s => {
+      if (s.type === "office" && s.locationId) {
+        locCounts[s.locationId] = (locCounts[s.locationId]||0) + 1;
+      }
+    });
+    const mainLocationId = Object.entries(locCounts)
+      .sort((a,b) => b[1]-a[1])[0]?.[0] || "";
+
     return {
       ...u,
       id: uid, _id: uid,
       firstName: name.firstName || "",
       lastName: name.lastName || "",
-      mainLocationId: bsMainLoc[uid] || "",
+      mainLocationId,
       scheduledShifts: u.scheduledShifts || [],
       activities: u.activities || [],
       draftActivities: u.draftActivities || [],
     };
   });
 
-  // 4. time_off_request
+  // 5. time_off_request
   let timeOffRequests = [];
   try {
-    const torResp = await fetch(`https://app.m-work.co/v2/api/time_off_request?scope=manager`, { headers });
-    if (torResp.ok) timeOffRequests = (await torResp.json()).timeOffRequestList || [];
+    const r = await fetch(`https://app.m-work.co/v2/api/time_off_request?scope=manager`, { headers });
+    if (r.ok) timeOffRequests = (await r.json()).timeOffRequestList || [];
   } catch(e) {}
 
   return res.status(200).json({
     users,
     company: {
-      ...newData.json?.viewConfig,
-      locations: Object.entries(bsLocations).map(([id, name]) => ({ id, name })),
+      locations: Object.entries(locationNames).map(([id, name]) => ({ id, name })),
     },
     timeOffRequestList: timeOffRequests,
     activityCatalog,
