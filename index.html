@@ -3944,11 +3944,10 @@ const MW_ACT_MAP={
   "69304523127fe6908b2827b4":"ACCUEIL",   // Accueil
   "69bbbef97a47336ded78361e":"ACCUEIL",   // Renfort accueil
   "693044c2e4c31c90fc922c80":"GDV",       // Gestion des valeurs
-  "693044cf95f42df999d1beab":"REUNION",   // Réunion → R
+  "693044cf95f42df999d1beab":"REUNION",   // Réunion → R (si >= 2h)
   "693044efd4b0e1b8fb896689":"FORMATION", // Formation → F
   "693044b8d4b0e1b8fb896687":"COACHING",  // Coaching accompagnement → C
   "6930454895f42df999d1beac":"COACHING",  // Management commercial partagé → C
-  "693045002cc61e9175a0edb4":"ABSENCE",   // Congés et absences → O
 };
 const MW_PLANNER_ID="69aea462646ef8fbf8ebd9ee";
 const MW_COMPANY_ID="693042e16ec252fe0f990934";
@@ -4155,10 +4154,12 @@ function _mwUserToEntries(mwUser,ourMemberId){
       if(type){
         if(type==="ACCUEIL")act=ACCUEIL_CODE;
         else if(type==="GDV")act=GDV_CODE;
-        else if(type==="REUNION")act="R";
+        else if(type==="REUNION"){
+          // Réunion seulement si durée >= 2h
+          if((a.durationMs||0)>=7200000)act="R";
+        }
         else if(type==="FORMATION")act="F";
         else if(type==="COACHING")act="C";
-        else if(type==="ABSENCE")act="O";
       } else {
         const cat=mwCatalog[a.activityId]||{};
         const actName=_normName(cat.name||"");
