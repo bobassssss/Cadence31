@@ -3119,9 +3119,10 @@ function buildCRCDashboard(){
     return{y:thu.getFullYear(),w:Math.ceil(((thu-jan1)/86400000+1)/7)};
   }
 
-  // Initiales d'un nom : premières lettres de chaque mot (max 3)
+  // 3 premières lettres du prénom
   function initials(name){
-    return name.trim().split(/\s+/).map(w=>w[0]?.toUpperCase()||"").slice(0,3).join("");
+    const firstName=name.trim().split(/\s+/)[0]||"";
+    return firstName.slice(0,3).toUpperCase();
   }
 
   // Construire les 52 (ou 53) semaines de l'année civile
@@ -4069,6 +4070,7 @@ function _mwUserToEntries(mwUser,ourMemberId){
 
   // 1. Shifts de base (présence / absence)
   const mwCatalog=S._mwState?.activityCatalog||{};
+  console.log("mwCatalog size:",Object.keys(mwCatalog).length, Object.entries(mwCatalog).slice(0,3).map(([k,v])=>`${k}=${v.name}`));
 
   mwUser.scheduledShifts.forEach(s=>{
     const date=s.planningDate;
@@ -4151,15 +4153,23 @@ function _mwUserToEntries(mwUser,ourMemberId){
         const cat=mwCatalog[a.activityId]||{};
         const actName=_normName(cat.name||"");
         const actCode=_normName(cat.code||"");
-        nonFixed2.forEach((site,i)=>{
-          if(act)return;
-          const sNorm=_normName(site.label);
-          if(actName.includes(sNorm)||sNorm.includes(actName)||
-             actCode.includes(sNorm)||sNorm.includes(actCode)||
-             actName.split(" ").some(w=>w.length>2&&(sNorm.includes(w)||w.includes(sNorm)))){
-            act=labelToCode(site.label,i,nonFixedLabels2);
-          }
-        });
+        // Matcher Accueil/GDV par nom
+        if(actName.includes("accueil")||actCode.includes("accueil")){
+          act=ACCUEIL_CODE;
+        } else if(actName.includes("gdv")||actName.includes("gestion")||actName.includes("valeur")){
+          act=GDV_CODE;
+        } else {
+          // Activités personnalisées (MMC, Leads, Risque…)
+          nonFixed2.forEach((site,i)=>{
+            if(act)return;
+            const sNorm=_normName(site.label);
+            if(actName.includes(sNorm)||sNorm.includes(actName)||
+               actCode.includes(sNorm)||sNorm.includes(actCode)||
+               actName.split(" ").some(w=>w.length>2&&(sNorm.includes(w)||w.includes(sNorm)))){
+              act=labelToCode(site.label,i,nonFixedLabels2);
+            }
+          });
+        }
       }
       if(act){
         const key=`${ourMemberId}|${date}|${slot}`;
