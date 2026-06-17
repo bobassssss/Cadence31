@@ -3941,9 +3941,14 @@ const MW_OFFTYPE_MAP={
 };
 // Activités m-work (activityId) → type générique (résolu en code équipe dynamiquement)
 const MW_ACT_MAP={
-  "69304523127fe6908b2827b4":"ACCUEIL", // Accueil
-  "69bbbef97a47336ded78361e":"ACCUEIL", // Renfort accueil
-  "693044c2e4c31c90fc922c80":"GDV",     // Gestion des valeurs
+  "69304523127fe6908b2827b4":"ACCUEIL",   // Accueil
+  "69bbbef97a47336ded78361e":"ACCUEIL",   // Renfort accueil
+  "693044c2e4c31c90fc922c80":"GDV",       // Gestion des valeurs
+  "693044cf95f42df999d1beab":"REUNION",   // Réunion → R
+  "693044efd4b0e1b8fb896689":"FORMATION", // Formation → F
+  "693044b8d4b0e1b8fb896687":"COACHING",  // Coaching accompagnement → C
+  "6930454895f42df999d1beac":"COACHING",  // Management commercial partagé → C
+  "693045002cc61e9175a0edb4":"ABSENCE",   // Congés et absences → O
 };
 const MW_PLANNER_ID="69aea462646ef8fbf8ebd9ee";
 const MW_COMPANY_ID="693042e16ec252fe0f990934";
@@ -4148,18 +4153,25 @@ function _mwUserToEntries(mwUser,ourMemberId){
       const type=MW_ACT_MAP[a.activityId];
       let act=null;
       if(type){
-        act=type==="ACCUEIL"?ACCUEIL_CODE:GDV_CODE;
+        if(type==="ACCUEIL")act=ACCUEIL_CODE;
+        else if(type==="GDV")act=GDV_CODE;
+        else if(type==="REUNION")act="R";
+        else if(type==="FORMATION")act="F";
+        else if(type==="COACHING")act="C";
+        else if(type==="ABSENCE")act="O";
       } else {
         const cat=mwCatalog[a.activityId]||{};
         const actName=_normName(cat.name||"");
         const actCode=_normName(cat.code||"");
-        // Matcher Accueil/GDV par nom
-        if(actName.includes("accueil")||actCode.includes("accueil")){
-          act=ACCUEIL_CODE;
-        } else if(actName.includes("gdv")||actName.includes("gestion")||actName.includes("valeur")){
-          act=GDV_CODE;
-        } else {
-          // Activités personnalisées (MMC, Leads, Risque…)
+        // Correspondance par nom pour activités standard
+        if(actName.includes("accueil")||actCode.includes("accueil")) act=ACCUEIL_CODE;
+        else if(actName.includes("gdv")||actName.includes("gestion")&&actName.includes("valeur")) act=GDV_CODE;
+        else if(actName.includes("reunion")||actName.includes("réunion")) act="R";
+        else if(actName.includes("formation")) act="F";
+        else if(actName.includes("crc")) act="CRC";
+        else if(actName.includes("coaching")) act="C";
+        else {
+          // Activités personnalisées seulement (MMC, Leads, Risque…)
           nonFixed2.forEach((site,i)=>{
             if(act)return;
             const sNorm=_normName(site.label);
@@ -4177,15 +4189,18 @@ function _mwUserToEntries(mwUser,ourMemberId){
           entries[key]={act,comment:"",draft:isDraft};
         } else {
           const existing=entries[key];
-          // Activité secondarisable (MMC, Leads) → mettre en act2
           if(act2Codes.includes(act)&&existing.act&&existing.act!==act){
+            // Activité secondarisable → act2
             entries[key]={...existing,act2:act};
           } else if(act2Codes.includes(existing.act)&&!act2Codes.includes(act)){
-            // L'existante est secondaire, la nouvelle est principale
+            // Existante secondarisable, nouvelle principale
             entries[key]={act,comment:"",draft:isDraft,act2:existing.act};
           } else if(!isDraft){
-            // Activité publiée principale écrase le draft principal
+            // Activité publiée principale écrase
             entries[key]={act,comment:"",draft:false};
+          } else if(existing.act==="."||!existing.act){
+            // Draft écrase la présence par défaut
+            entries[key]={act,comment:"",draft:true};
           }
         }
       }
