@@ -477,7 +477,7 @@ let S={
   },
   events:{},      // dateStr → commentaire global (conservé pour compatibilité)
   teamEvents:{},  // "teamName|dateStr" → commentaire par équipe
-  activeTeams:new Set(), showLegend:false, filtrePoste:new Set(),
+  activeTeams:new Set(), showLegend:false, filtrePoste:new Set(), draftKeys:new Set(),
   modal:null, editMember:null,
   actCells:[], actInitComment:"", actInitCountAs:"present",
   drag:null, touchDrag:false,
@@ -534,13 +534,13 @@ async function loadState(){
     let from=0;
     const PAGE=1000;
     while(true){
-      const{data:pl,error}=await _sb.from("planning").select("key,act,act2,comment,count_as,draft").range(from,from+PAGE-1);
+      const{data:pl,error}=await _sb.from("planning").select("key,act,act2,comment,count_as").range(from,from+PAGE-1);
       if(error||!pl||pl.length===0)break;
       allRows=allRows.concat(pl);
       if(pl.length<PAGE)break;
       from+=PAGE;
     }
-    if(allRows.length>0){S.planning={};allRows.forEach(r=>{S.planning[r.key]={act:r.act,act2:r.act2||null,comment:r.comment||"",countAs:r.count_as||undefined,draft:r.draft||false};});}
+    if(allRows.length>0){S.planning={};allRows.forEach(r=>{S.planning[r.key]={act:r.act,act2:r.act2||null,comment:r.comment||"",countAs:r.count_as||undefined};});}
     // Members — triés par sort_order pour conserver l'ordre d'affichage
     const{data:mb}=await _sb.from("members").select("*").order("sort_order",{ascending:true,nullsFirst:false});
     if(mb&&mb.length>0)S.members=mb.map(r=>({id:r.id,name:r.name,team:r.team,post:r.post,email:r.email}));
@@ -635,7 +635,7 @@ async function _persistPlanningEntries(entries){
   if(!_sb)return;
   try{
     const rows=Object.entries(entries).map(([k,v])=>({
-      key:k,act:v.act,act2:v.act2||null,comment:v.comment||"",count_as:v.countAs||null,draft:v.draft||false
+      key:k,act:v.act,act2:v.act2||null,comment:v.comment||"",count_as:v.countAs||null
     }));
     if(rows.length>0)await _sb.from("planning").upsert(rows,{onConflict:"key"});
   }catch(e){console.warn("Supabase planning persist error:",e);}
@@ -1634,7 +1634,7 @@ function buildWeekGrid(){
           td.className="td-cell"+(isSel?" selecting":"")+(isToday?" today-cell":"");
           td.dataset.key=key;
           if(ai&&!isSel){td.style.background=ai.bg;td.style.borderRadius="4px";}
-          if(entry.draft)td.classList.add("cell-draft");
+          if(S.draftKeys.has(key))td.classList.add("cell-draft");
           const span=document.createElement("span");span.className="cell-code";
           if(ai){span.style.background=ai.bg;span.style.color=ai.c;span.style.borderRadius="4px";}else{span.textContent=ai?(ai.disp||actCode):actCode;}
           span.textContent=ai?(ai.disp||actCode):actCode;if(ai)span.style.color=ai.c;
@@ -4585,7 +4585,12 @@ function buildImportMworkModal(){
           for(let i=0;i<rows.length;i+=chunkSize){
             await _sb.from("planning").upsert(rows.slice(i,i+chunkSize),{onConflict:"key"});
           }
-          Object.entries(allEntries).forEach(([key,v])=>{S.planning[key]=v;});
+          // Mettre à jour le planning local + noter les clés draft
+          S.draftKeys=new Set();
+          Object.entries(allEntries).forEach(([key,v])=>{
+            S.planning[key]=v;
+            if(v.draft)S.draftKeys.add(key);
+          });
 
           // Sauvegarder le détail horaire (planning_detail)
           ev.target.textContent="Détail…";
