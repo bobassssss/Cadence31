@@ -4079,6 +4079,7 @@ function _mwUserToEntries(mwUser,ourMemberId){
   const mwCatalog=S._mwState?.activityCatalog||{};
   console.log("mwCatalog size:",Object.keys(mwCatalog).length, Object.entries(mwCatalog).slice(0,3).map(([k,v])=>`${k}=${v.name}`));
 
+  const lockedKeys=new Set();
   mwUser.scheduledShifts.forEach(s=>{
     const date=s.planningDate;
     const slot=s.dayPart;
@@ -4115,10 +4116,14 @@ function _mwUserToEntries(mwUser,ourMemberId){
       const locId=s.locationId||"";
       if(MW_LOC_MAP[locId]){
         act=MW_LOC_MAP[locId];
-      } else if(locId&&locId!==mainLocId){
+        lockedKeys.add(`${ourMemberId}|${date}|${slot}`); // lieu spécial (CRC, formation…) prioritaire
+      } else if(locId){
         const locName=mwLocMap[locId]||"";
-        act=_mwLocToActCode(locName)||".";
-        if(act===".")comment=locName;
+        const code=_mwLocToActCode(locName);
+        if(code===`EQ${n}`) act=".";               // lieu de sa propre équipe
+        else if(code) act=code;                     // autre équipe / lieu connu
+        else if(!locName||locId===mainLocId) act="."; // nom inconnu : repli sur lieu habituel
+        else { act="."; comment=locName; }          // lieu non référencé : en commentaire
       } else {
         act=".";
       }
@@ -4205,6 +4210,7 @@ function _mwUserToEntries(mwUser,ourMemberId){
           entries[key]={act,comment:"",draft:isDraft};
         } else {
           const existing=entries[key];
+          if(lockedKeys.has(key)&&!act2Codes.includes(act))return; // CRC/formation… non écrasés
           if(act2Codes.includes(act)&&existing.act&&existing.act!==act){
             // Activité secondarisable → act2
             entries[key]={...existing,act2:act};
@@ -4598,7 +4604,8 @@ function buildImportMworkModal(){
           const rows=Object.entries(allEntries).map(([key,v])=>({key,act:v.act,act2:v.act2||null,comment:v.comment||"",count_as:null}));
           const chunkSize=200;
           for(let i=0;i<rows.length;i+=chunkSize){
-            await _sb.from("planning").upsert(rows.slice(i,i+chunkSize),{onConflict:"key"});
+            const{error:upErr}=await _sb.from("planning").upsert(rows.slice(i,i+chunkSize),{onConflict:"key"});
+            if(upErr)throw new Error("Écriture Supabase refusée : "+upErr.message);
           }
           // Mettre à jour le planning local + noter les clés draft
           S.draftKeys=new Set();
