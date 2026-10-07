@@ -4383,7 +4383,7 @@ function buildImportMworkModal(){
   const setStep=(n)=>{S._mwState.step=n;render();};
   const box=mk("div","modal",{style:{maxWidth:"460px",width:"95%",maxHeight:"90vh",overflowY:"auto"}});
   const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
-    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-0710b"])]),
+    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-0710c"])]),
     mk("button","mclose",{onClick:()=>{S._mwState=null;close();}},"×"),
   ]);
   box.appendChild(hdr);
@@ -5958,7 +5958,7 @@ function _mwRawToMonths(raw){
   // Signaler à l'onglet m-work que Cadence31 est prêt (une fois l'admin connecté)
   const ping=setInterval(()=>{
     if(received){clearInterval(ping);return;}
-    if(!_auth.user||!isAdmin()||!S.members.length)return;
+    if(!_auth.user||!isAdmin()||S.members===INIT_MEMBERS||!S.members.length)return; // attendre le chargement réel des membres
     try{window.opener.postMessage({t:"c31ready"},MW_ORIGIN);}catch(e){}
   },1000);
   setTimeout(()=>clearInterval(ping),10*60*1000);
