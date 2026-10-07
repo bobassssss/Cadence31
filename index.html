@@ -4114,7 +4114,7 @@ function _mwUserToEntries(mwUser,ourMemberId){
       }
     } else if(s.type==="office"){
       const locId=s.locationId||"";
-      if(locId==="69bbb7c37a5c0285bc230597"||_normName(mwLocMap[locId]||"")==="reunion"){
+      if(locId==="69bbb7c37a5c0285bc230597"||_normName(mwLocMap[locId]||"").includes("reunion")){
         act="."; // lieu Réunion : R seulement si ≥ 3h de réunion (voir activités)
       } else if(MW_LOC_MAP[locId]){
         act=MW_LOC_MAP[locId];
@@ -4157,9 +4157,10 @@ function _mwUserToEntries(mwUser,ourMemberId){
   const hourUTC=(d)=>d?parseInt(d.slice(11,13)):0;
   const processActivities=(list,isDraft)=>{
     // Total des réunions par demi-journée (plusieurs blocs courts peuvent faire ≥ 3h)
+    const kindOf=a=>MW_ACT_MAP[a.activityId]||(_normName((mwCatalog[a.activityId]||{}).name||"").includes("reunion")?"REUNION":undefined);
     const reuMs={};
     list.forEach(a=>{
-      if(MW_ACT_MAP[a.activityId]!=="REUNION"||!a.startDate)return;
+      if(kindOf(a)!=="REUNION"||!a.startDate)return;
       const k=a.startDate.slice(0,10)+"|"+(hourUTC(a.startDate)<11?"AM":"PM");
       reuMs[k]=(reuMs[k]||0)+(a.durationMs||0);
     });
@@ -4167,7 +4168,7 @@ function _mwUserToEntries(mwUser,ourMemberId){
       const date=a.startDate?.slice(0,10);
       if(!date||!a.activityId)return;
       const slot=hourUTC(a.startDate)<11?"AM":"PM";
-      const type=MW_ACT_MAP[a.activityId];
+      const type=kindOf(a);
       let act=null;
       if(type==="IGNORE")return; // ignoré
       if(type){
@@ -4392,7 +4393,7 @@ function buildImportMworkModal(){
   const setStep=(n)=>{S._mwState.step=n;render();};
   const box=mk("div","modal",{style:{maxWidth:"460px",width:"95%",maxHeight:"90vh",overflowY:"auto"}});
   const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
-    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-0710d"])]),
+    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-0710e"])]),
     mk("button","mclose",{onClick:()=>{S._mwState=null;close();}},"×"),
   ]);
   box.appendChild(hdr);
