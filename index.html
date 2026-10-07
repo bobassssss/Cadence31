@@ -4119,7 +4119,8 @@ function _mwUserToEntries(mwUser,ourMemberId){
         lockedKeys.add(`${ourMemberId}|${date}|${slot}`); // lieu spécial (CRC, formation…) prioritaire
       } else if(locId){
         const locName=mwLocMap[locId]||"";
-        const code=_mwLocToActCode(locName);
+        const ln=_normName(locName);
+        const code=(ln.includes("relation client")||/\bcrc\b/.test(ln))?"CRC":_mwLocToActCode(locName);
         if(code===`EQ${n}`) act=".";               // lieu de sa propre équipe
         else if(code) act=code;                     // autre équipe / lieu connu
         else if(!locName||locId===mainLocId) act="."; // nom inconnu : repli sur lieu habituel
@@ -4350,7 +4351,7 @@ function buildImportMworkModal(){
   const setStep=(n)=>{S._mwState.step=n;render();};
   const box=mk("div","modal",{style:{maxWidth:"460px",width:"95%",maxHeight:"90vh",overflowY:"auto"}});
   const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
-    mk("h3","",{style:{margin:0}},["↓ Import m-work"]),
+    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-0710"])]),
     mk("button","mclose",{onClick:()=>{S._mwState=null;close();}},"×"),
   ]);
   box.appendChild(hdr);
