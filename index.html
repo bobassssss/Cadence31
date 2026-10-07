@@ -4342,6 +4342,38 @@ function buildTriggerImportModal(){
   return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
 }
 
+// ─── IMPORT M-WORK : fusion des mois récupérés → étape 2 (partagé) ───────────
+function _mwIngestMonths(dataList,label){
+  const mw=S._mwState;
+  const usersOf=d=>d.json?.planner?.users||d.json?.users||d.users||[];
+  const merged={};
+  dataList.forEach(d=>{
+    usersOf(d).forEach(u=>{
+      const id=u.id||u._id||u.userId;
+      if(!merged[id]){
+        merged[id]={...u,id,scheduledShifts:[...(u.scheduledShifts||[])],activities:[...(u.activities||[])],draftActivities:[...(u.draftActivities||[])]};
+      } else {
+        merged[id].scheduledShifts.push(...(u.scheduledShifts||[]));
+        merged[id].activities.push(...(u.activities||[]));
+        merged[id].draftActivities.push(...(u.draftActivities||[]));
+      }
+    });
+  });
+  const mergedUsers=Object.values(merged);
+  const base=dataList[0]||{};
+  // Lieux et catalogue : fusion de tous les mois
+  const locs={};dataList.forEach(d=>(d.company?.locations||[]).forEach(l=>{locs[l.id]=l.name;}));
+  mw.mwData={users:mergedUsers,company:{locations:Object.entries(locs).map(([id,name])=>({id,name}))}};
+  mw.timeOffRequests=base.timeOffRequestList||[];
+  mw.activityCatalog={};dataList.forEach(d=>Object.assign(mw.activityCatalog,d.activityCatalog||{}));
+  mw.importLabel=label;
+  mw.mapping=mergedUsers.map(u=>{
+    const fn=u.firstName||u.firstname||u.first_name||"",ln=u.lastName||u.lastname||u.last_name||"";
+    return{mwId:u.id,mwName:`${fn} ${ln}`.trim()||u.displayName||u.name||"?",mwUser:u,ourMember:_suggestMember(fn,ln),include:true};
+  });
+  mw.step=2;render();
+}
+
 function buildImportMworkModal(){
   const close=()=>{S.modal=null;render();};
   // État local du wizard
@@ -4351,7 +4383,7 @@ function buildImportMworkModal(){
   const setStep=(n)=>{S._mwState.step=n;render();};
   const box=mk("div","modal",{style:{maxWidth:"460px",width:"95%",maxHeight:"90vh",overflowY:"auto"}});
   const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
-    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-0710"])]),
+    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-0710b"])]),
     mk("button","mclose",{onClick:()=>{S._mwState=null;close();}},"×"),
   ]);
   box.appendChild(hdr);
@@ -4447,9 +4479,8 @@ function buildImportMworkModal(){
             btnFetch.textContent="Chargement 1/2…";
           }
 
-          // Fetcher chaque mois et fusionner les données users
-          let mergedUsers=null;
-          let baseData=null;
+          // Fetcher chaque mois via le proxy (mode cookie)
+          const dataList=[];
           for(let i=0;i<months.length;i++){
             if(months.length>1)btnFetch.textContent=`Chargement ${i+1}/${months.length}…`;
             const resp=await fetch(MW_PROXY_URL,{
@@ -4460,37 +4491,9 @@ function buildImportMworkModal(){
             if(!resp.ok){const t=await resp.text();throw new Error(t);}
             const data=await resp.json();
             if(data.error)throw new Error(data.error);
-            if(!baseData){baseData=data;const userList=data.json?.planner?.users||data.json?.users||data.users||[];mergedUsers=userList.map(u=>({...u,scheduledShifts:[...(u.scheduledShifts||[])],activities:[...(u.activities||[])]}));}
-            else{
-              // Fusionner shifts et activities de chaque mois
-              (data.json?.planner?.users||data.json?.users||data.users||[]).forEach(mu=>{
-                const existing=mergedUsers.find(u=>u.id===mu.id);
-                if(existing){
-                  existing.scheduledShifts.push(...mu.scheduledShifts);
-                  existing.activities.push(...mu.activities);
-                }
-              });
-            }
+            dataList.push(data);
           }
-          // Reconstruire mwData avec les users fusionnés
-          if(baseData.json?.planner)baseData.json.planner.users=mergedUsers;else if(baseData.json)baseData.json.users=mergedUsers;else baseData.users=mergedUsers;
-          mw.mwData=baseData;
-          mw.timeOffRequests=baseData.timeOffRequestList||[];
-          // Catalogue d'activités (id → {name, color, code})
-          mw.activityCatalog=Object.assign(mw.activityCatalog||{},baseData.activityCatalog||{});
-          S._mwState.activityCatalog=mw.activityCatalog; // accès facile depuis _mwUserToEntries
-          mw.yearMode?mw.importLabel=`Année ${mw.year}`:mw.importLabel=`${months[0].slice(0,7)}`;
-
-          // Mapping membres
-          mw.mapping=mergedUsers.map(u=>({
-            mwId:u.id||u._id,
-            mwName:`${u.firstName||u.firstname||u.first_name||""} ${u.lastName||u.lastname||u.last_name||""}`.trim()||u.displayName||u.name||"?",
-            mwUser:u,
-            ourMember:_suggestMember(u.firstName||u.firstname||u.first_name||"",u.lastName||u.lastname||u.last_name||""),
-            include:true,
-          }));
-          if(mergedUsers.length>0)console.log("User sample keys:",Object.keys(mergedUsers[0]).slice(0,15));
-          setStep(2);
+          _mwIngestMonths(dataList,mw.yearMode?"Année glissante":months[0].slice(0,7));
         }catch(err){
           errEl.textContent="Erreur : "+(err.message||"vérifiez le cookie");
           btnFetch.disabled=false;btnFetch.textContent="Récupérer les données";
@@ -5897,6 +5900,70 @@ function buildDeskBookingModal(team,d,slot,avail){
 
 // ─── MODAL RÉSERVATIONS ADMIN ─────────────────────────────────────────────────
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ═══ IMPORT PAR FAVORI M-WORK (bookmarklet) — DÉBUT DU BLOC ═══════════════
+// Le favori, lancé depuis un onglet m-work connecté, récupère les données brutes
+// puis ouvre Cadence31 (?mwimport=1) et les transmet d'onglet à onglet.
+// → Pour DÉSACTIVER : passer MW_BOOKMARKLET à false.
+// → Pour SUPPRIMER : effacer tout ce bloc jusqu'à « FIN DU BLOC ».
+//   L'import classique par cookie n'en dépend pas.
+// ═══════════════════════════════════════════════════════════════════════════
+const MW_BOOKMARKLET=true;
+const MW_ORIGIN="https://app.m-work.co";
+
+// Données brutes m-work → même format que le proxy Vercel
+function _mwRawToMonths(raw){
+  const walk=(o,f)=>{if(!o||typeof o!=="object")return;if(Array.isArray(o)){o.forEach(x=>walk(x,f));return;}f(o);Object.values(o).forEach(x=>walk(x,f));};
+  const names={},catalog={},locs={};
+  walk(raw.bootstrap,o=>{
+    const id=o._id||o.id;if(!id)return;
+    const fn=o.firstName||o.firstname,ln=o.lastName||o.lastname;
+    if(fn||ln)names[id]={firstName:fn||"",lastName:ln||""};
+    if(o.name&&(o.externalId||o.color))catalog[id]={name:o.name,code:o.externalId||o.code||o.name,color:o.color||"#888888"};
+  });
+  walk(raw.locations,o=>{const id=o._id||o.id;if(id&&typeof o.name==="string"&&o.name)locs[id]=o.name;});
+  if(!Object.keys(locs).length)walk(raw.bootstrap,o=>{const id=o._id||o.id;if(id&&typeof o.name==="string"&&o.name&&!o.firstName&&!o.lastName)locs[id]=o.name;});
+  const locations=Object.entries(locs).map(([id,name])=>({id,name}));
+  return(raw.plannings||[]).map(p=>({
+    users:(p.json?.users||[]).map(u=>{
+      const uid=u.userId,nm=names[uid]||{},cnt={};
+      (u.scheduledShifts||[]).forEach(s=>{if(s.type==="office"&&s.locationId)cnt[s.locationId]=(cnt[s.locationId]||0)+1;});
+      const mainLocationId=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0]?.[0]||"";
+      return{...u,id:uid,_id:uid,firstName:nm.firstName||"",lastName:nm.lastName||"",mainLocationId,
+        scheduledShifts:u.scheduledShifts||[],activities:u.activities||[],draftActivities:u.draftActivities||[]};
+    }),
+    company:{locations},
+    timeOffRequestList:raw.tor||[],
+    activityCatalog:catalog,
+  }));
+}
+
+(function(){
+  if(!MW_BOOKMARKLET)return;
+  if(!/[?&]mwimport=1/.test(location.search)||!window.opener)return;
+  let received=false;
+  window.addEventListener("message",e=>{
+    if(e.origin!==MW_ORIGIN||received||!e.data||e.data.t!=="mwdata")return;
+    if(!isAdmin())return;
+    received=true;
+    try{
+      const months=_mwRawToMonths(e.data);
+      S._mwState={step:1,cookie:"",date:fmtDate(new Date()),mwData:null,mapping:[],result:null};
+      S.modal="importMwork";
+      _mwIngestMonths(months,`${e.data.start} (${e.data.n} mois, via favori)`);
+      history.replaceState(null,"",location.pathname);
+    }catch(err){alert("Import favori m-work : "+err.message);}
+  });
+  // Signaler à l'onglet m-work que Cadence31 est prêt (une fois l'admin connecté)
+  const ping=setInterval(()=>{
+    if(received){clearInterval(ping);return;}
+    if(!_auth.user||!isAdmin()||!S.members.length)return;
+    try{window.opener.postMessage({t:"c31ready"},MW_ORIGIN);}catch(e){}
+  },1000);
+  setTimeout(()=>clearInterval(ping),10*60*1000);
+})();
+// ═══ IMPORT PAR FAVORI M-WORK — FIN DU BLOC ═══════════════════════════════
 </script>
 </body>
 </html>
