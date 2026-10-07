@@ -3925,7 +3925,7 @@ document.getElementById("ls-forgot-link").addEventListener("click",async functio
 const MW_LOC_MAP={
   "69bbb7c35493f0f79bbea06c":"F",   // Formation (lieu spécial)
   "69bbb7c335d5cda3d7955698":"DP",  // Délégation (lieu spécial)
-  "69bbb7c37a5c0285bc230597":"R",   // Réunion (lieu spécial)
+  // Lieu "Réunion" (69bbb7c37a5c0285bc230597) : volontairement absent → R décidé par la durée cumulée
   // CRC — tous les lieux "CENTRE DE RELATION CLIENT"
   "693186ac23c0c0a98643b08a":"CRC", // CRC EST
   "693047383d2051bb1311017d":"CRC", // CRC CENTRE
@@ -4114,7 +4114,9 @@ function _mwUserToEntries(mwUser,ourMemberId){
       }
     } else if(s.type==="office"){
       const locId=s.locationId||"";
-      if(MW_LOC_MAP[locId]){
+      if(locId==="69bbb7c37a5c0285bc230597"||_normName(mwLocMap[locId]||"")==="reunion"){
+        act="."; // lieu Réunion : R seulement si ≥ 3h de réunion (voir activités)
+      } else if(MW_LOC_MAP[locId]){
         act=MW_LOC_MAP[locId];
         lockedKeys.add(`${ourMemberId}|${date}|${slot}`); // lieu spécial (CRC, formation…) prioritaire
       } else if(locId){
@@ -4154,6 +4156,13 @@ function _mwUserToEntries(mwUser,ourMemberId){
   // puis les draftActivities seulement pour les créneaux non couverts (avec flag draft)
   const hourUTC=(d)=>d?parseInt(d.slice(11,13)):0;
   const processActivities=(list,isDraft)=>{
+    // Total des réunions par demi-journée (plusieurs blocs courts peuvent faire ≥ 3h)
+    const reuMs={};
+    list.forEach(a=>{
+      if(MW_ACT_MAP[a.activityId]!=="REUNION"||!a.startDate)return;
+      const k=a.startDate.slice(0,10)+"|"+(hourUTC(a.startDate)<11?"AM":"PM");
+      reuMs[k]=(reuMs[k]||0)+(a.durationMs||0);
+    });
     list.forEach(a=>{
       const date=a.startDate?.slice(0,10);
       if(!date||!a.activityId)return;
@@ -4165,7 +4174,7 @@ function _mwUserToEntries(mwUser,ourMemberId){
         if(type==="ACCUEIL")act=ACCUEIL_CODE;
         else if(type==="GDV")act=GDV_CODE;
         else if(type==="REUNION"){
-          if((a.durationMs||0)>=10800000)act="R";
+          if((reuMs[a.startDate.slice(0,10)+"|"+slot]||0)>=10800000)act="R";
         }
         else if(type==="FORMATION")act="F";
         else if(type==="CUSTOM"){
@@ -4383,7 +4392,7 @@ function buildImportMworkModal(){
   const setStep=(n)=>{S._mwState.step=n;render();};
   const box=mk("div","modal",{style:{maxWidth:"460px",width:"95%",maxHeight:"90vh",overflowY:"auto"}});
   const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
-    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-0710c"])]),
+    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-0710d"])]),
     mk("button","mclose",{onClick:()=>{S._mwState=null;close();}},"×"),
   ]);
   box.appendChild(hdr);
