@@ -4334,7 +4334,9 @@ function _suggestMember(mwFirst,mwLast){
     }
     if(score>bestScore){bestScore=score;best=m;}
   });
-  return bestScore>=3?best:null;
+  // Prénom seul ou mot commun = trop faible : ce n'est probablement pas la même personne
+  _suggestMember.lastScore=bestScore;
+  return bestScore>=5?best:null;
 }
 
 // Détermine le créneau (AM/PM) depuis startDate UTC
@@ -4727,8 +4729,15 @@ function _mwIngestMonths(dataList,label){
   mw.importLabel=label;
   mw.mapping=mergedUsers.map(u=>{
     const fn=u.firstName||u.firstname||u.first_name||"",ln=u.lastName||u.lastname||u.last_name||"";
-    return{mwId:u.id,mwName:`${fn} ${ln}`.trim()||u.displayName||u.name||"?",mwUser:u,ourMember:_suggestMember(fn,ln),include:true};
+    const sug=_suggestMember(fn,ln);
+    return{mwId:u.id,mwName:`${fn} ${ln}`.trim()||u.displayName||u.name||"?",mwUser:u,ourMember:sug,_score:sug?_suggestMember.lastScore:0,include:true};
   });
+  // Un même collaborateur ne peut correspondre qu'à une seule personne m-work : on garde la meilleure
+  const bestFor={};
+  mw.mapping.forEach(m=>{if(!m.ourMember)return;const k=m.ourMember.id;if(!bestFor[k]||m._score>bestFor[k]._score)bestFor[k]=m;});
+  mw.mapping.forEach(m=>{if(m.ourMember&&bestFor[m.ourMember.id]!==m){m.ourMember=null;m._score=0;}});
+  // Personnes sans correspondance en premier, puis ordre alphabétique
+  mw.mapping.sort((a,b)=>(a.ourMember?1:0)-(b.ourMember?1:0)||a.mwName.localeCompare(b.mwName,"fr"));
   mw.step=2;render();
 }
 
@@ -4741,7 +4750,7 @@ function buildImportMworkModal(){
   const setStep=(n)=>{S._mwState.step=n;render();};
   const box=mk("div","modal",{style:{maxWidth:"460px",width:"95%",maxHeight:"90vh",overflowY:"auto"}});
   const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
-    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-1024f"])]),
+    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-1024g"])]),
     mk("button","mclose",{onClick:()=>{S._mwState=null;close();}},"×"),
   ]);
   box.appendChild(hdr);
@@ -4865,7 +4874,7 @@ function buildImportMworkModal(){
   // ── ÉTAPE 2 : Mapping membres ─────────────────────────────────────────────
   else if(mw.step===2){
     box.appendChild(mk("p","",{style:{fontSize:"12px",color:"#6b7280",margin:"0 0 10px"}},
-      [`${mw.mapping.length} membres trouvés dans m-work. Vérifiez la correspondance avec vos membres.`]));
+      [(()=>{const nf=mw.mapping.filter(m=>!m.ourMember).length;return `${mw.mapping.length} personnes trouvées dans m-work : ${mw.mapping.length-nf} reconnues, ${nf} sans correspondance dans le planning (en haut de la liste, bouton « + Créer »).`;})()]));
 
     const rows=mw.mapping.map((m,i)=>{
       const chk=mk("input","",{type:"checkbox"});
@@ -4894,7 +4903,7 @@ function buildImportMworkModal(){
 
       return mk("div","",{style:{display:"flex",alignItems:"center",gap:"8px",padding:"5px 0",borderBottom:"1px solid #f3f4f6"}},[
         chk,
-        mk("span","",{style:{fontSize:"12px",minWidth:"130px",color:"#374151"}},[m.mwName]),
+        mk("span","",{style:{fontSize:"12px",minWidth:"130px",color:m.ourMember?"#374151":"#1d4ed8",fontWeight:m.ourMember?"400":"600"}},[m.mwName]),
         mk("span","",{style:{fontSize:"11px",color:"#9ca3af"}},"→"),
         sel,
         addBtn,
