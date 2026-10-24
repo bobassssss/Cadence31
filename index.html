@@ -1126,18 +1126,24 @@ function _findCoverageHoles(){
   return holes;
 }
 function _skillSets(){
-  const sk={A:new Set(),G:new Set()};
+  // Habilitation = le(s) modèle(s) type uniquement. L'historique ne sert que si
+  // aucun modèle ne contient ce type d'activité (accueil ou GDV).
+  const tpl={A:new Set(),G:new Set()};
   Object.values(S.templates||{}).forEach(t=>{
     const w=(t&&t.weeks)||t||{};
     Object.entries(w).forEach(([mid,slots])=>{
       if(mid==="memberNames"||!slots||typeof slots!=="object")return;
-      Object.values(slots).forEach(c=>{const ty=_actType(c);if(ty)sk[ty].add(mid);});
+      Object.values(slots).forEach(c=>{const ty=_actType(c);if(ty)tpl[ty].add(mid);});
     });
   });
-  const from=fmtDate(addDays(new Date(),-120));
-  Object.entries(S.planning).forEach(([k,v])=>{
-    const p=k.split("|");if(!v||p[1]<from)return;
-    const ty=_actType(v.act);if(ty)sk[ty].add(p[0]);
+  const sk={A:tpl.A,G:tpl.G};
+  ["A","G"].forEach(ty=>{
+    if(sk[ty].size)return;
+    const from=fmtDate(addDays(new Date(),-120));
+    Object.entries(S.planning).forEach(([k,v])=>{
+      const p=k.split("|");if(!v||p[1]<from)return;
+      if(_actType(v.act)===ty)sk[ty].add(p[0]);
+    });
   });
   return sk;
 }
@@ -1168,7 +1174,7 @@ function _buildCompletion(){
   });
 }
 function buildCompleteModal(){
-  const close=()=>{S.modal=null;S._compl=null;render();};
+  const close=()=>{S.modal=null;S._compl=null;S._complTeams=null;render();};
   if(!S._compl)S._compl=_buildCompletion();
   const items=S._compl;
   const box=mk("div","modal",{style:{maxWidth:"540px",width:"95%",maxHeight:"88vh",overflowY:"auto"}});
@@ -1182,9 +1188,26 @@ function buildCompleteModal(){
     return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
   }
   box.appendChild(mk("div","info-box",{style:{marginBottom:"10px"}},[
-    `${items.length} créneau${items.length>1?"x":""} sans accueil ou GDV sur la période affichée. Personnes proposées : présentes, habilitées (d'après le modèle type et les 4 derniers mois) et les moins sollicitées sur les 8 dernières semaines. Le chiffre entre parenthèses est leur nombre d'accueils ou de GDV sur cette période.`
+    `${items.length} créneau${items.length>1?"x":""} sans accueil ou GDV sur la période affichée. Personnes proposées : présentes, habilitées (présentes sur cette activité dans le modèle type) et les moins sollicitées sur les 8 dernières semaines. Le chiffre entre parenthèses est leur nombre d'accueils ou de GDV sur cette période.`
   ]));
-  items.forEach(it=>{
+  // Filtre par lieu (équipe)
+  const lieux=[...new Set(items.map(it=>it.team))];
+  if(!S._complTeams)S._complTeams=new Set(lieux);
+  if(lieux.length>1){
+    const bar=mk("div","",{style:{display:"flex",gap:"6px",flexWrap:"wrap",alignItems:"center",marginBottom:"8px"}},[
+      mk("span","",{style:{fontSize:"12px",color:"#6b7280",marginRight:"2px"}},["Lieux :"])
+    ]);
+    lieux.forEach(t=>{
+      const on=S._complTeams.has(t);
+      const n=items.filter(it=>it.team===t).length;
+      bar.appendChild(mk("button","btn"+(on?" primary":""),{style:{padding:"5px 10px",fontSize:"12px"},onClick:()=>{
+        if(on)S._complTeams.delete(t);else S._complTeams.add(t);render();
+      }},[`${t} (${n})`]));
+    });
+    box.appendChild(bar);
+  }
+  const shown=items.filter(it=>S._complTeams.has(it.team));
+  shown.forEach(it=>{
     const lbl=`${DAYS_FULL[it.d.getDay()]} ${it.d.getDate()}/${it.d.getMonth()+1} ${it.slot==="AM"?"matin":"après-midi"} · ${it.team} · ${it.type==="A"?"Accueil":"GDV"}`;
     const row=mk("div","",{style:{display:"flex",alignItems:"center",gap:"8px",padding:"7px 0",borderBottom:"1px solid #f3f4f6",flexWrap:"wrap"}});
     const chk=mk("input","",{type:"checkbox"});chk.checked=it.on;
@@ -1203,7 +1226,7 @@ function buildCompleteModal(){
     box.appendChild(row);
   });
   const apply=()=>{
-    const sel=items.filter(it=>it.on&&it.pick);
+    const sel=items.filter(it=>it.on&&it.pick&&S._complTeams.has(it.team));
     if(!sel.length){close();return;}
     const entries={},keys=[];
     sel.forEach(it=>{const k=`${it.pick}|${it.ds}|${it.slot}`;if(!keys.includes(k))keys.push(k);});
@@ -2189,13 +2212,23 @@ function buildActivityModal(){
 
 // ─── MODAL MEMBRE ────────────────────────────────────────────────────────────
 function buildMemberModal(){
-  const m=S.editMember;const close=()=>{S.modal=null;S.editMember=null;render();};
+  const m=S.editMember;const close=()=>{
+    if(S._mwAddFor){
+      // Ouvert depuis l'import m-work : on y revient en associant le membre créé
+      const r=S._mwAddFor;S._mwAddFor=null;S.editMember=null;
+      const row=S._mwState&&S._mwState.mapping&&S._mwState.mapping[r.idx];
+      const nm=r.newId&&S.members.find(x=>x.id===r.newId);
+      if(row&&nm){row.ourMember=nm;row.include=true;}
+      S.modal=S._mwState?"importMwork":null;render();return;
+    }
+    S.modal=null;S.editMember=null;render();
+  };
   const teams=getTeams();const inputs={};
   const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[mk("h3"),mk("button","mclose",{onClick:close},["×"])]);
   hdr.querySelector("h3").textContent=m?"Modifier le membre":"Ajouter un membre";
   const bodyEls=[hdr];
   // Nom
-  const nameInp=mk("input","",{type:"text"});nameInp.value=m?m.name:"";
+  const nameInp=mk("input","",{type:"text"});nameInp.value=m?m.name:(S._mwAddFor?S._mwAddFor.name:"");
   inputs.name=nameInp;
   bodyEls.push(mk("div","frow",{},[mk("label","lf",{},["Nom complet"]),nameInp]));
   // Équipe : select avec toutes les équipes + option "Nouvelle équipe"
@@ -2243,7 +2276,11 @@ function buildMemberModal(){
       S.settings.teamSettings[teamVal]={bureauxFixes:1,openSpace:false,postesTotal:null};
     }
     if(m)S.members=S.members.map(x=>x.id===m.id?{...x,name:nm,team:teamVal,post:postVal||x.post,email:emailVal}:x);
-    else S.members.push({id:"m"+Date.now(),name:nm,team:teamVal,post:postVal,email:emailVal});
+    else{
+      const newId="m"+Date.now();
+      S.members.push({id:newId,name:nm,team:teamVal,post:postVal,email:emailVal});
+      if(S._mwAddFor)S._mwAddFor.newId=newId;
+    }
     persist();
     // Envoyer invitation si email nouveau, désactiver si email effacé
     if(emailVal&&emailVal!==oldEmail&&_sb){
@@ -4526,7 +4563,7 @@ function buildImportMworkModal(){
   const setStep=(n)=>{S._mwState.step=n;render();};
   const box=mk("div","modal",{style:{maxWidth:"460px",width:"95%",maxHeight:"90vh",overflowY:"auto"}});
   const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
-    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-1024a"])]),
+    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-1024c"])]),
     mk("button","mclose",{onClick:()=>{S._mwState=null;close();}},"×"),
   ]);
   box.appendChild(hdr);
@@ -4669,11 +4706,20 @@ function buildImportMworkModal(){
       });
       sel.disabled=!m.include;
 
+      // Créer dans le planning un collaborateur absent de la liste
+      const addBtn=mk("button","btn",{
+        style:{padding:"3px 8px",fontSize:"11px",whiteSpace:"nowrap",...(m.ourMember?{}:{color:"#1d4ed8",borderColor:"#bfdbfe",background:"#eff6ff"})},
+        title:"Créer ce collaborateur dans le planning",
+        "aria-label":"Créer "+m.mwName+" dans le planning",
+        onClick:()=>{S._mwAddFor={idx:i,name:m.mwName};S.editMember=null;S.modal="member";render();}
+      },[m.ourMember?"+":"+ Créer"]);
+
       return mk("div","",{style:{display:"flex",alignItems:"center",gap:"8px",padding:"5px 0",borderBottom:"1px solid #f3f4f6"}},[
         chk,
         mk("span","",{style:{fontSize:"12px",minWidth:"130px",color:"#374151"}},[m.mwName]),
         mk("span","",{style:{fontSize:"11px",color:"#9ca3af"}},"→"),
         sel,
+        addBtn,
       ]);
     });
 
