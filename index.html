@@ -1083,6 +1083,7 @@ function render(){
   if(S.modal==="filtrePoste") app.appendChild(buildFiltrePosteModal());
   if(S.modal==="navPicker") app.appendChild(buildNavPickerModal());
   if(S.modal==="stats")     app.appendChild(buildStatsModal());
+  if(S.modal==="complete")  app.appendChild(buildCompleteModal());
   if(S.modal==="clearData") app.appendChild(buildClearModal());
   if(S.modal==="crcDashboard") app.appendChild(buildCRCDashboard());
   if(S.modal==="importMwork") app.appendChild(buildImportMworkModal());
@@ -1096,6 +1097,137 @@ function render(){
 }
 
 // ─── TOP BAR ─────────────────────────────────────────────────────────────────
+
+// ═══ COMPLÉTER LES TROUS D'ACCUEIL / GDV ═════════════════════════════════════
+// Propose, pour toute la période affichée, une personne présente et habilitée
+// (déduit du modèle type + historique) pour chaque accueil ou GDV manquant.
+function _activeViewDays(){
+  if(S.view==="week")return WORK_OFFSETS.map(o=>addDays(S.weekStart,o));
+  const y=S.monthRef.getFullYear(),m=S.monthRef.getMonth(),n=new Date(y,m+1,0).getDate();
+  const out=[];
+  for(let i=1;i<=n;i++){const d=new Date(y,m,i);const w=d.getDay();if(w!==0&&w!==1)out.push(d);}
+  return out;
+}
+function _actType(c){return(/^A\d+$/.test(c||"")||c==="S")?"A":(/^G\d+$/.test(c||"")?"G":null);}
+function _findCoverageHoles(){
+  const today=fmtDate(new Date());const teams=getTeams();const holes=[];
+  _activeViewDays().forEach(d=>{
+    if(fmtDate(d)<today||isHoliday(d))return;
+    getVisibleTeams().forEach(team=>{
+      const n=teams.indexOf(team)+1;
+      getDaySlots(d).forEach(slot=>{
+        const cov=teamCoverage(team,d,slot);
+        if(cov.onSite===0)return;
+        if(!cov.hasAccueil)holes.push({d,slot,team,type:"A",code:"A"+n});
+        if(!cov.hasGDV)holes.push({d,slot,team,type:"G",code:"G"+n});
+      });
+    });
+  });
+  return holes;
+}
+function _skillSets(){
+  const sk={A:new Set(),G:new Set()};
+  Object.values(S.templates||{}).forEach(t=>{
+    const w=(t&&t.weeks)||t||{};
+    Object.entries(w).forEach(([mid,slots])=>{
+      if(mid==="memberNames"||!slots||typeof slots!=="object")return;
+      Object.values(slots).forEach(c=>{const ty=_actType(c);if(ty)sk[ty].add(mid);});
+    });
+  });
+  const from=fmtDate(addDays(new Date(),-120));
+  Object.entries(S.planning).forEach(([k,v])=>{
+    const p=k.split("|");if(!v||p[1]<from)return;
+    const ty=_actType(v.act);if(ty)sk[ty].add(p[0]);
+  });
+  return sk;
+}
+function _buildCompletion(){
+  const holes=_findCoverageHoles();
+  const days=_activeViewDays();if(!days.length||!holes.length)return[];
+  const from=fmtDate(addDays(days[0],-56)),to=fmtDate(days[days.length-1]);
+  const cnt={A:{},G:{}},dayHas={A:{},G:{}};
+  Object.entries(S.planning).forEach(([k,v])=>{
+    const p=k.split("|");if(!v||p[1]<from||p[1]>to)return;
+    const ty=_actType(v.act);if(!ty)return;
+    cnt[ty][p[0]]=(cnt[ty][p[0]]||0)+1;dayHas[ty][p[0]+"|"+p[1]]=true;
+  });
+  const sk=_skillSets();const taken=new Set();
+  return holes.map(h=>{
+    const ds=fmtDate(h.d),other=h.type==="A"?"G":"A";
+    const cands=S.members
+      .filter(m=>m.team===h.team&&sk[h.type].has(m.id)&&!taken.has(m.id+"|"+ds+"|"+h.slot)&&getAct(m.id,h.d,h.slot)===".")
+      .map(m=>{const c=cnt[h.type][m.id]||0;return{id:m.id,name:m.name,c,score:c+(dayHas[other][m.id+"|"+ds]?1.5:0)};})
+      .sort((a,b)=>a.score-b.score||a.name.localeCompare(b.name));
+    const pick=cands[0];
+    if(pick){
+      taken.add(pick.id+"|"+ds+"|"+h.slot);
+      cnt[h.type][pick.id]=(cnt[h.type][pick.id]||0)+1;
+      dayHas[h.type][pick.id+"|"+ds]=true;
+    }
+    return{...h,ds,cands,pick:pick?pick.id:"",on:!!pick};
+  });
+}
+function buildCompleteModal(){
+  const close=()=>{S.modal=null;S._compl=null;render();};
+  if(!S._compl)S._compl=_buildCompletion();
+  const items=S._compl;
+  const box=mk("div","modal",{style:{maxWidth:"540px",width:"95%",maxHeight:"88vh",overflowY:"auto"}});
+  box.appendChild(mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}},[
+    mk("h3","",{style:{margin:0}},["Compléter le planning"]),
+    mk("button","mclose",{onClick:close},["×"]),
+  ]));
+  if(!items.length){
+    box.appendChild(mk("p","",{style:{fontSize:"13px",color:"#374151"}},["Aucun accueil ni GDV manquant sur la période affichée."]));
+    box.appendChild(mk("div","mfooter",{},[mk("button","btn",{onClick:close},["Fermer"])]));
+    return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
+  }
+  box.appendChild(mk("div","info-box",{style:{marginBottom:"10px"}},[
+    `${items.length} créneau${items.length>1?"x":""} sans accueil ou GDV sur la période affichée. Personnes proposées : présentes, habilitées (d'après le modèle type et les 4 derniers mois) et les moins sollicitées sur les 8 dernières semaines. Le chiffre entre parenthèses est leur nombre d'accueils ou de GDV sur cette période.`
+  ]));
+  items.forEach(it=>{
+    const lbl=`${DAYS_FULL[it.d.getDay()]} ${it.d.getDate()}/${it.d.getMonth()+1} ${it.slot==="AM"?"matin":"après-midi"} · ${it.team} · ${it.type==="A"?"Accueil":"GDV"}`;
+    const row=mk("div","",{style:{display:"flex",alignItems:"center",gap:"8px",padding:"7px 0",borderBottom:"1px solid #f3f4f6",flexWrap:"wrap"}});
+    const chk=mk("input","",{type:"checkbox"});chk.checked=it.on;
+    if(!it.cands.length)chk.disabled=true;
+    chk.addEventListener("change",()=>{it.on=chk.checked;});
+    row.appendChild(chk);
+    row.appendChild(mk("span","",{style:{fontSize:"12px",flex:"1 1 220px",color:"#374151"}},[lbl]));
+    if(it.cands.length){
+      const sel=mk("select","",{style:{flex:"0 1 190px",width:"auto",padding:"5px 8px",fontSize:"12px"}});
+      it.cands.forEach(c=>{const o=mk("option","",{value:c.id},[`${c.name} (${c.c})`]);if(c.id===it.pick)o.selected=true;sel.appendChild(o);});
+      sel.addEventListener("change",()=>{it.pick=sel.value;});
+      row.appendChild(sel);
+    } else {
+      row.appendChild(mk("span","",{style:{fontSize:"11px",color:"#b91c1c",fontStyle:"italic"}},["Personne d'habilité disponible"]));
+    }
+    box.appendChild(row);
+  });
+  const apply=()=>{
+    const sel=items.filter(it=>it.on&&it.pick);
+    if(!sel.length){close();return;}
+    const entries={},keys=[];
+    sel.forEach(it=>{const k=`${it.pick}|${it.ds}|${it.slot}`;if(!keys.includes(k))keys.push(k);});
+    pushUndo(keys);
+    sel.forEach(it=>{
+      const k=`${it.pick}|${it.ds}|${it.slot}`;if(entries[k])return; // même personne choisie deux fois : on garde la 1re
+      const actBefore=S.planning[k]?.act||null;
+      S.planning[k]={act:it.code,comment:""};entries[k]=S.planning[k];
+      if(isAdmin()){
+        const idx=S.publishQueue.findIndex(e=>e.key===k);
+        if(idx>=0)S.publishQueue[idx].actAfter=it.code;
+        else S.publishQueue.push({key:k,mid:it.pick,date:it.ds,slot:it.slot,actBefore,actAfter:it.code});
+      }
+    });
+    S.publishQueue=S.publishQueue.filter(e=>e.actBefore!==e.actAfter);
+    _persistPlanningEntries(entries);persist();close();
+  };
+  box.appendChild(mk("div","mfooter",{},[
+    mk("button","btn",{onClick:close},["Annuler"]),
+    mk("button","btn primary",{onClick:apply},["Appliquer la sélection"]),
+  ]));
+  return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
+}
+
 function buildTopBar(){
   const teams=getTeams();
   let lbl="";
@@ -1171,6 +1303,7 @@ function buildTopBar(){
     mk("button","btn",{style:{padding:"6px 10px",fontSize:"16px",textDecoration:S.showLegend?"none":"line-through"},title:S.showLegend?"Masquer la légende":"Afficher la légende",onClick:()=>{S.showLegend=!S.showLegend;render();}},["📖"]),
     ...(S.undoStack.length>0?[mk("button","btn",{style:{padding:"6px 9px"},onClick:async()=>{await undoLast();}},["↩ Annuler"])]:[] ),
     ...(isAdmin()&&S.publishQueue.length>0?[(()=>{const btn=mk("button","btn",{style:{padding:"6px 9px",background:"#16a34a",color:"#fff",position:"relative"},onClick:()=>{S.modal="publish";render();}},["📢 Publier"]);const badge=mk("span","",{style:{position:"absolute",top:"-5px",right:"-5px",background:"#ef4444",color:"#fff",borderRadius:"50%",fontSize:"10px",fontWeight:"bold",width:"16px",height:"16px",display:"flex",alignItems:"center",justifyContent:"center"}},[String([...new Set(S.publishQueue.map(e=>e.mid))].length)]);btn.appendChild(badge);return btn;})()]:[] ),
+    ...(isAdmin()?(()=>{const n=_findCoverageHoles().length;return n>0?[mk("button","btn",{style:{padding:"6px 9px",background:"#fef2f2",color:"#991b1b",borderColor:"#fecaca"},title:"Proposer des personnes pour les accueils et GDV non couverts",onClick:()=>{S._compl=null;S.modal="complete";render();}},[`Compléter (${n})`])]:[];})():[]),
     ...(!isAdmin()&&S.pendingEntries.length>0?[(()=>{
       const btn=mk("button","btn",{style:{padding:"6px 9px",background:"#2563eb",color:"#fff",position:"relative"},onClick:()=>{S.modal="requestBasket";render();}},["📋 Ma demande"]);
       const badge=mk("span","",{style:{position:"absolute",top:"-5px",right:"-5px",background:"#ef4444",color:"#fff",borderRadius:"50%",fontSize:"10px",fontWeight:"bold",width:"16px",height:"16px",display:"flex",alignItems:"center",justifyContent:"center"}},[String(S.pendingEntries.length)]);
@@ -4393,7 +4526,7 @@ function buildImportMworkModal(){
   const setStep=(n)=>{S._mwState.step=n;render();};
   const box=mk("div","modal",{style:{maxWidth:"460px",width:"95%",maxHeight:"90vh",overflowY:"auto"}});
   const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
-    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-0710e"])]),
+    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-1024a"])]),
     mk("button","mclose",{onClick:()=>{S._mwState=null;close();}},"×"),
   ]);
   box.appendChild(hdr);
