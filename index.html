@@ -9,6 +9,7 @@
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#f4f6f9;min-height:100vh;color:#1a1a2e;touch-action:pan-y}
 button{cursor:pointer;font-family:inherit;transition:background .12s;-webkit-appearance:none}
 input,select,textarea{font-family:inherit;-webkit-appearance:none;appearance:none}
+input[type=checkbox]{-webkit-appearance:checkbox;appearance:auto;width:18px;height:18px;accent-color:#1e3a5f;flex-shrink:0;cursor:pointer;margin:0}
 #app{padding:10px 8px}
 .topbar{background:#fff;padding:9px 12px;border-radius:10px;border:0.5px solid #e2e8f0;margin-bottom:9px}
 .topbar-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px}
@@ -1147,6 +1148,14 @@ function _skillSets(){
   });
   return sk;
 }
+// Coefficient de sollicitation par poste : plus le poste est élevé, moins on sollicite
+function _postWeight(post){
+  const a=posteAbbr(post||"");
+  if(["Alt","Acc","AccP"].includes(a))return 1;
+  if(["Cons","CoP"].includes(a))return 1.5;
+  if(["Char","ChaP"].includes(a))return 2;
+  return 3; // autres postes (patrimoniaux, direction…) : en dernier recours
+}
 function _buildCompletion(){
   const holes=_findCoverageHoles();
   const days=_activeViewDays();if(!days.length||!holes.length)return[];
@@ -1158,17 +1167,33 @@ function _buildCompletion(){
     cnt[ty][p[0]]=(cnt[ty][p[0]]||0)+1;dayHas[ty][p[0]+"|"+p[1]]=true;
   });
   const sk=_skillSets();const taken=new Set();
+  const holeSlots=new Set(holes.map(h=>h.team+"|"+fmtDate(h.d)+"|"+h.slot));
+  const lent={}; // lieu|date|créneau → nb de personnes prêtées à un autre lieu
   return holes.map(h=>{
     const ds=fmtDate(h.d),other=h.type==="A"?"G":"A";
     const cands=S.members
-      .filter(m=>m.team===h.team&&sk[h.type].has(m.id)&&!taken.has(m.id+"|"+ds+"|"+h.slot)&&getAct(m.id,h.d,h.slot)===".")
-      .map(m=>{const c=cnt[h.type][m.id]||0;return{id:m.id,name:m.name,c,score:c+(dayHas[other][m.id+"|"+ds]?1.5:0)};})
+      .filter(m=>sk[h.type].has(m.id)&&!taken.has(m.id+"|"+ds+"|"+h.slot)&&getAct(m.id,h.d,h.slot)===".")
+      .filter(m=>{
+        if(m.team===h.team)return true;
+        // Débordement sur un autre lieu : seulement si ce lieu n'a pas lui-même un trou
+        // sur ce créneau et reste au-dessus de son effectif minimum après le prêt
+        const lk=m.team+"|"+ds+"|"+h.slot;
+        if(holeSlots.has(lk))return false;
+        const cov=teamCoverage(m.team,h.d,h.slot);
+        return cov.onSite-(lent[lk]||0)-1>=Math.max(cov.min||0,1);
+      })
+      .map(m=>{
+        const c=cnt[h.type][m.id]||0,w=_postWeight(m.post),ext=m.team!==h.team;
+        const score=(ext?1000:0)+(c+1)*w+(dayHas[other][m.id+"|"+ds]?1.5:0)+w/100;
+        return{id:m.id,name:m.name,team:m.team,ext,c,score};
+      })
       .sort((a,b)=>a.score-b.score||a.name.localeCompare(b.name));
     const pick=cands[0];
     if(pick){
       taken.add(pick.id+"|"+ds+"|"+h.slot);
       cnt[h.type][pick.id]=(cnt[h.type][pick.id]||0)+1;
       dayHas[h.type][pick.id+"|"+ds]=true;
+      if(pick.ext){const lk=pick.team+"|"+ds+"|"+h.slot;lent[lk]=(lent[lk]||0)+1;}
     }
     return{...h,ds,cands,pick:pick?pick.id:"",on:!!pick};
   });
@@ -1188,7 +1213,7 @@ function buildCompleteModal(){
     return mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
   }
   box.appendChild(mk("div","info-box",{style:{marginBottom:"10px"}},[
-    `${items.length} créneau${items.length>1?"x":""} sans accueil ou GDV sur la période affichée. Personnes proposées : présentes, habilitées (présentes sur cette activité dans le modèle type) et les moins sollicitées sur les 8 dernières semaines. Le chiffre entre parenthèses est leur nombre d'accueils ou de GDV sur cette période.`
+    `${items.length} créneau${items.length>1?"x":""} sans accueil ou GDV sur la période affichée. Personnes proposées : présentes, habilitées d'après le modèle type, et les moins sollicitées sur les 8 dernières semaines en tenant compte du poste (Alt et Acc d'abord, puis Cons, puis Char). Les personnes d'un autre lieu viennent après celles du lieu, avec le nom de leur lieu, et seulement si leur lieu reste au-dessus de son effectif minimum. Le chiffre entre parenthèses est leur nombre d'accueils ou de GDV sur la période.`
   ]));
   // Filtre par lieu (équipe)
   const lieux=[...new Set(items.map(it=>it.team))];
@@ -1213,11 +1238,10 @@ function buildCompleteModal(){
     const chk=mk("input","",{type:"checkbox"});chk.checked=it.on;
     if(!it.cands.length)chk.disabled=true;
     chk.addEventListener("change",()=>{it.on=chk.checked;});
-    row.appendChild(chk);
-    row.appendChild(mk("span","",{style:{fontSize:"12px",flex:"1 1 220px",color:"#374151"}},[lbl]));
+    row.appendChild(mk("label","",{style:{display:"flex",alignItems:"center",gap:"8px",flex:"1 1 240px",cursor:"pointer",fontSize:"12px",color:"#374151"}},[chk,lbl]));
     if(it.cands.length){
       const sel=mk("select","",{style:{flex:"0 1 190px",width:"auto",padding:"5px 8px",fontSize:"12px"}});
-      it.cands.forEach(c=>{const o=mk("option","",{value:c.id},[`${c.name} (${c.c})`]);if(c.id===it.pick)o.selected=true;sel.appendChild(o);});
+      it.cands.forEach(c=>{const o=mk("option","",{value:c.id},[`${c.name} (${c.c})${c.ext?" — "+c.team:""}`]);if(c.id===it.pick)o.selected=true;sel.appendChild(o);});
       sel.addEventListener("change",()=>{it.pick=sel.value;});
       row.appendChild(sel);
     } else {
@@ -4563,7 +4587,7 @@ function buildImportMworkModal(){
   const setStep=(n)=>{S._mwState.step=n;render();};
   const box=mk("div","modal",{style:{maxWidth:"460px",width:"95%",maxHeight:"90vh",overflowY:"auto"}});
   const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
-    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-1024c"])]),
+    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-1024e"])]),
     mk("button","mclose",{onClick:()=>{S._mwState=null;close();}},"×"),
   ]);
   box.appendChild(hdr);
