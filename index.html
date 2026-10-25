@@ -25,7 +25,7 @@ input[type=checkbox]{-webkit-appearance:checkbox;appearance:auto;width:18px;heig
 .btn.danger{color:#dc2626;border-color:#fecaca;background:#fff5f5}
 .seg-wrap{display:flex}
 .btn.seg{border-radius:0;border-right-width:0}
-.btn.seg:first-child{border-radius:7px 0 0 7px}
+.btn.seg:first-child,.btn.today-m+.btn.seg{border-radius:7px 0 0 7px}
 .btn.seg:last-child{border-radius:0 7px 7px 0;border-right-width:0.5px}
 /* grid */
 .grid-wrap{overflow-x:auto;border-radius:10px;border:0.5px solid #e2e8f0;background:#fff;-webkit-overflow-scrolling:touch;margin-bottom:10px;max-width:100%;width:100%}
@@ -319,6 +319,17 @@ body{padding-bottom:90px}
 .c31-go[hidden]{display:none}
 @media print{.c31-fab,.c31-radial{display:none!important}body{padding-bottom:0}}
 @media (prefers-reduced-motion:reduce){.c31-radial,.c31-disc,.c31-it,.c31-it .ic{transition:none}.c31-disc{transform:none}}
+.today-m{display:none}
+/* Mobile portrait : logo + navigation de date sur la 1re ligne, Auj. + Semaine/Mois dessous */
+@media (orientation:portrait) and (max-width:700px){
+  .topbar-row.r1{flex-wrap:wrap}
+  .topbar-row.r1 .logo img{max-width:110px!important;max-height:40px!important}
+  .topbar-row.r1 .nav-week{flex:1 1 0;min-width:0;justify-content:flex-end}
+  .topbar-row.r1 .wlabel{min-width:0;flex:1 1 auto}
+  .topbar-row.r1 .nav-week .today{display:none}
+  .topbar-row.r1 .seg-wrap{flex-basis:100%}
+  .topbar-row.r1 .seg-wrap .today-m{display:inline-block;margin-right:6px}
+}
 </style>
 </head>
 <body>
@@ -1325,7 +1336,7 @@ function buildTopBar(){
   const prev=()=>{if(S.view==="week")S.weekStart=addDays(S.weekStart,-7);else{const m=new Date(S.monthRef);m.setMonth(m.getMonth()-1);S.monthRef=m;}render();};
   const next=()=>{if(S.view==="week")S.weekStart=addDays(S.weekStart,7);else{const m=new Date(S.monthRef);m.setMonth(m.getMonth()+1);S.monthRef=m;}render();};
   const goToday=()=>{S.weekStart=getMonday(new Date());S.monthRef=new Date();render();};
-  const r1=mk("div","topbar-row",{},[
+  const r1=mk("div","topbar-row r1",{},[
     (()=>{
       const logoEl=mk("div","logo",{style:{cursor:isAdmin()?"pointer":"default",display:"flex",alignItems:"center"}});
       if(S.settings.logoDataUrl){
@@ -1363,6 +1374,7 @@ function buildTopBar(){
       mk("button","btn today",{onClick:goToday},["Auj."]),
     ]),
     mk("div","seg-wrap",{},[
+      mk("button","btn today today-m",{onClick:goToday},["Auj."]),
       mk("button","btn seg"+(S.view==="week"?" active":""),{onClick:()=>{S.view="week";render();}},["Semaine"]),
       mk("button","btn seg"+(S.view==="month"?" active":""),{onClick:()=>{S.view="month";render();}},["Mois"]),
     ]),
@@ -4750,7 +4762,7 @@ function buildImportMworkModal(){
   const setStep=(n)=>{S._mwState.step=n;render();};
   const box=mk("div","modal",{style:{maxWidth:"460px",width:"95%",maxHeight:"90vh",overflowY:"auto"}});
   const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
-    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-1024g"])]),
+    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-1024h"])]),
     mk("button","mclose",{onClick:()=>{S._mwState=null;close();}},"×"),
   ]);
   box.appendChild(hdr);
