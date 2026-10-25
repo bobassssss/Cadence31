@@ -4762,7 +4762,7 @@ function buildImportMworkModal(){
   const setStep=(n)=>{S._mwState.step=n;render();};
   const box=mk("div","modal",{style:{maxWidth:"460px",width:"95%",maxHeight:"90vh",overflowY:"auto"}});
   const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
-    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-1024h"])]),
+    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-1024j"])]),
     mk("button","mclose",{onClick:()=>{S._mwState=null;close();}},"×"),
   ]);
   box.appendChild(hdr);
@@ -5293,8 +5293,41 @@ function buildRequestsAdminModal(){
   filterBureauInp.addEventListener("input",applyFilters);
 
   // ─ Assemblage final
-  const footer=mk("div","mfooter",[mk("button","btn",{onClick:close},["Fermer"])]);
-  const box=mk("div","modal",{style:{maxWidth:"420px",width:"95%"}},[header,filtersRow,bodyEl,footer]);
+  // Purge de l'historique (demandes validées / refusées). Les demandes en attente sont conservées.
+  const purgeMsg=mk("p","",{style:{fontSize:"12px",margin:"0 0 6px",minHeight:"0"}});
+  const makePurge=(table,list,setList,label,what)=>{
+    const done=list.filter(r=>r.status!=="pending");
+    const lbl=()=>done.length?`🗑 Purger ${label} (${done.length})`:`🗑 Historique ${label} vide`;
+    const btn=mk("button","btn danger",{
+      title:`Supprimer définitivement les ${what} déjà acceptées/validées ou refusées`,
+      onClick:async()=>{
+        const pend=list.length-done.length,n=done.length,pl=n>1;
+        if(!confirm(`Purger l'historique ${label} ?\n\n${n} ${what} traitée${pl?"s":""} ser${pl?"ont":"a"} supprimée${pl?"s":""} définitivement.${pend?`\n${pend} en attente ser${pend>1?"ont":"a"} conservée${pend>1?"s":""}.`:""}\n\nLe planning n'est pas modifié. Pensez à faire une sauvegarde avant si vous voulez garder cet historique.`))return;
+        btn.disabled=true;btn.textContent="Purge…";purgeMsg.textContent="";
+        try{
+          const ids=done.map(r=>r.id);
+          for(let i=0;i<ids.length;i+=200){
+            const{error}=await _sb.from(table).delete().in("id",ids.slice(i,i+200));
+            if(error)throw new Error(error.message);
+          }
+          setList(list.filter(r=>r.status==="pending"));
+          render();
+        }catch(e){
+          purgeMsg.style.color="#b91c1c";purgeMsg.textContent="Erreur : "+e.message;
+          btn.disabled=false;btn.textContent=lbl();
+        }
+      }
+    },[lbl()]);
+    btn.disabled=done.length===0;
+    return btn;
+  };
+  const btnPurgeConges=makePurge("requests",S.requests,v=>{S.requests=v;},"des congés","demandes de congés");
+  const btnPurgeBureaux=makePurge("desk_bookings",S.deskBookings,v=>{S.deskBookings=v;},"des bureaux","réservations de bureaux");
+  const footer=mk("div","mfooter",{style:{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap"}},[
+    btnPurgeConges,btnPurgeBureaux,
+    mk("button","btn",{style:{marginLeft:"auto"},onClick:close},["Fermer"]),
+  ]);
+  const box=mk("div","modal",{style:{maxWidth:"420px",width:"95%"}},[header,filtersRow,bodyEl,purgeMsg,footer]);
   const overlay=mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[box]);
 
   // ─ Construire les cartes bureaux
@@ -5624,15 +5657,21 @@ function buildBackupModal(){
       ],{onConflict:"key"});
 
       // 6. Demandes et réservations
-      if(backup.requests?.length){
-        await _sb.from("requests").delete().gte("id","");
-        for(let i=0;i<backup.requests.length;i+=chunk)
-          await _sb.from("requests").upsert(backup.requests.slice(i,i+chunk),{onConflict:"id"});
+      if(Array.isArray(backup.requests)){
+        btnRestore.textContent="Demandes de congés…";
+        {const{error}=await _sb.from("requests").delete().not("id","is",null);if(error)throw new Error("demandes de congés : "+error.message);}
+        for(let i=0;i<backup.requests.length;i+=chunk){
+          const{error}=await _sb.from("requests").upsert(backup.requests.slice(i,i+chunk),{onConflict:"id"});
+          if(error)throw new Error("demandes de congés : "+error.message);
+        }
       }
-      if(backup.desk_bookings?.length){
-        await _sb.from("desk_bookings").delete().gte("id","");
-        for(let i=0;i<backup.desk_bookings.length;i+=chunk)
-          await _sb.from("desk_bookings").upsert(backup.desk_bookings.slice(i,i+chunk),{onConflict:"id"});
+      if(Array.isArray(backup.desk_bookings)){
+        btnRestore.textContent="Réservations de bureaux…";
+        {const{error}=await _sb.from("desk_bookings").delete().not("id","is",null);if(error)throw new Error("réservations de bureaux : "+error.message);}
+        for(let i=0;i<backup.desk_bookings.length;i+=chunk){
+          const{error}=await _sb.from("desk_bookings").upsert(backup.desk_bookings.slice(i,i+chunk),{onConflict:"id"});
+          if(error)throw new Error("réservations de bureaux : "+error.message);
+        }
       }
 
       // 7. État local
@@ -5679,8 +5718,10 @@ function buildBackupModal(){
       try{
         await _sb.from("planning").delete().neq("key","__none__");
         await _sb.from("planning_detail").delete().neq("id","00000000-0000-0000-0000-000000000000");
-        await _sb.from("requests").delete().neq("id","00000000-0000-0000-0000-000000000000");
-        await _sb.from("desk_bookings").delete().neq("id","00000000-0000-0000-0000-000000000000");
+        {const{error}=await _sb.from("requests").delete().not("id","is",null);if(error)throw new Error("demandes de congés : "+error.message);}
+        S.requests=[];
+        {const{error}=await _sb.from("desk_bookings").delete().not("id","is",null);if(error)throw new Error("réservations de bureaux : "+error.message);}
+        S.deskBookings=[];
         await _sb.from("members").delete().neq("id","__none__");
         await _sb.from("settings").delete().in("key",["main","templates","teamEvents"]);
         // Réinitialiser l'état local
