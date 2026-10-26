@@ -330,6 +330,47 @@ body{padding-bottom:90px}
   .topbar-row.r1 .seg-wrap{flex-basis:100%}
   .topbar-row.r1 .seg-wrap .today-m{display:inline-block;margin-right:6px}
 }
+
+/* ── Fenêtre « remplir une case » ── */
+.am-sub{margin:-6px 0 12px;font-size:13px;color:#475569}
+.am-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:10px}
+.am-tile{font:inherit;min-height:66px;border-radius:12px;border:0;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;padding:0 10px;text-align:left;cursor:pointer}
+.am-tile strong{font-size:14px}.am-tile span{font-size:11px;opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.am-cur{outline:3px solid #1e3a5f;outline-offset:2px}
+.am-more{font:inherit;display:flex;align-items:center;justify-content:space-between;width:100%;min-height:46px;padding:0 14px;border-radius:10px;border:1px solid #d6dde7;background:#fff;color:#1e3a5f;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:4px}
+.am-sec{font:inherit;display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-height:48px;padding:6px 4px;border:0;border-bottom:1px solid #eef1f5;background:transparent;color:#111827;font-size:14px;font-weight:600;text-align:left;cursor:pointer}
+.am-sec small{display:block;font-weight:400;font-size:12px;color:#64748b;margin-top:1px}
+.am-mx{display:grid;gap:6px;align-items:center;padding:8px 0 2px}
+.am-mh{font-size:11px;font-weight:700;color:#475569;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.am-mr{font-size:12px;color:#475569}
+.am-b{font:inherit;min-height:40px;border-radius:8px;border:0;font-size:12.5px;font-weight:700;cursor:pointer}
+.am-grid{display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 4px}
+.am-chipact{font:inherit;min-height:38px;padding:0 10px;border-radius:8px;border:0;display:flex;gap:6px;align-items:center;font-size:12.5px;cursor:pointer}
+.am-chipact span{font-size:11.5px;font-weight:400}
+.am-link{font:inherit;border:0;background:transparent;color:#1e3a5f;font-size:13px;min-height:40px;padding:0;cursor:pointer;margin-top:6px}
+.am-tabs{display:flex;border-bottom:1px solid #e2e8f0;margin-bottom:12px}
+.am-tab{font:inherit;flex:1;min-height:42px;border:0;border-bottom:3px solid transparent;background:transparent;color:#475569;font-size:14px;font-weight:600;cursor:pointer}
+.am-tab.on{color:#1e3a5f;border-bottom-color:#1e3a5f}
+.am-chips{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.am-chl{font-size:12px;color:#475569;margin-right:2px}
+.am-chip{font:inherit;min-height:34px;padding:0 12px;border-radius:17px;border:1px solid #d6dde7;background:#fff;color:#1f2937;font-size:13px;cursor:pointer}
+.am-chip.on{background:#1e3a5f;color:#fff;border-color:#1e3a5f}
+.am-bigs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.am-big{font:inherit;min-height:56px;border-radius:12px;border:0;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:0 12px;font-size:14px;font-weight:600;text-align:left;cursor:pointer}
+.am-big small{font-size:11.5px;font-weight:700;opacity:.8}
+.am-foot{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px;padding-top:8px;border-top:1px solid #e5e7eb}
+.am-foot .frow{flex:1 1 100%}
+body.dark .am-sub,body.dark .am-mr,body.dark .am-mh,body.dark .am-chl,body.dark .am-sec small{color:#94a3b8}
+body.dark .am-sec{color:#e2e8f0;border-color:#2d3148}
+body.dark .am-more,body.dark .am-chip{background:#1e2130;color:#c7d2fe;border-color:#2d3148}
+body.dark .am-chip.on{background:#8fb3e0;color:#0f1117;border-color:#8fb3e0}
+body.dark .am-link{color:#93c5fd}
+body.dark .am-tabs,body.dark .am-foot{border-color:#2d3148}
+body.dark .am-tab{color:#94a3b8}
+body.dark .am-tab.on{color:#93c5fd;border-bottom-color:#93c5fd}
+body.dark .am-cur{outline-color:#93c5fd}
+/* Le bouton Outils se masque quand une fenêtre est ouverte */
+body:has(.overlay) .c31-fab{display:none}
 </style>
 </head>
 <body>
@@ -2274,10 +2315,13 @@ function buildActivityModal(){
 
   const resetDefault=()=>{pushUndo(cells);cells.forEach(k=>{delete S.planning[k];_deleteKey(k);});persist();S.modal=null;S.actCells=[];render();};
 
-  let modalEl=null;
+  let modalEl=null,ovEl=null;
   if(!S._act2Pending)S._act2Pending=null;
+  // État d'affichage de la fenêtre (propre à cette ouverture)
+  let uiMore=false,uiOpen=new Set(["site"]),uiTab=null,uiLieu=null,uiShowComment=false,uiCommentVal=null;
 
   function rebuildModal(){
+    if(ovEl)ovEl.remove();
     if(modalEl)modalEl.remove();
     const body=[];
     const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[mk("h3"),mk("button","mclose",{onClick:close},["×"])]);
@@ -2313,87 +2357,131 @@ function buildActivityModal(){
       }
       buildModalEl(body);return;
     }
-      // Écran principal : liste des activités
-      // Non-admin : uniquement CP, DP, TP
+      // ═══ Écran principal (refonte « remplir une case ») ═══
+      const teamsL=getTeams();
       const USER_ALLOWED=["CP","DP","TP"];
-      Object.entries(AG).forEach(([grp,codes])=>{
-        const filtered=isAdmin()?codes:codes.filter(c=>USER_ALLOWED.includes(c));
-        if(filtered.length===0)return;
-        body.push(mk("p","grp-label",{},[grp]));
-        const grid=mk("div","act-grid");
-        filtered.forEach(code=>{
-          const a=ACTS[code];if(!a)return;
-          const isCustom=customCodes.includes(code);
-          const btn=mk("button","act-btn",{onClick:()=>{
-            if(isCustom){
-              // Vérifier si toutes les cellules ont déjà une activité principale
-              const allHaveAct=cells.every(k=>S.planning[k]?.act&&S.planning[k].act!==".");
-              const existingAct2=S.planning[cells[0]]?.act2;
-              if(allHaveAct&&ACT2_CODES.includes(code)&&S.planning[cells[0]]?.act!==code){
-                // Proposer : principale ou secondaire
-                S._act2Pending={code,cells:[...cells]};
-                rebuildModal();
-              } else {
-                commit(code);
-              }
-            }
-            else{
-              pendingCode=null;
-              const comment=commentInp?commentInp.value.trim():"";
-              pushUndo(cells);
-              const saved2={};
-              cells.forEach(k=>{S.planning[k]={act:code,comment};saved2[k]={act:code,comment};});
-              _persistPlanningEntries(saved2);
-              persist();
-              // Alimenter la file de publication (admin uniquement)
-              if(isAdmin()){
-                cells.forEach(k=>{
-                  const parts=k.split("|");
-                  const mid=parts[0],date=parts[1],slot=parts[2];
-                  const actBefore=S.undoStack.length?S.undoStack[S.undoStack.length-1].before[k]?.act||null:null;
-                  // Éviter les doublons : si la clé existe déjà, mettre à jour
-                  const idx=S.publishQueue.findIndex(e=>e.key===k);
-                  if(idx>=0)S.publishQueue[idx]={key:k,mid,date,slot,actBefore:S.publishQueue[idx].actBefore,actAfter:code};
-                  else S.publishQueue.push({key:k,mid,date,slot,actBefore,actAfter:code});
-                });
-              // Supprimer les entrées sans changement réel (actBefore === actAfter)
-              S.publishQueue=S.publishQueue.filter(e=>e.actBefore!==e.actAfter);
-              }
-              if(code==="CRC"){
-                S.actCells=[];S.modal="crcDashboard";render();
-              } else if(!isAdmin()&&["CP","DP","TP"].includes(code)){
-                S.pendingEntries.push({cells:[...cells],code});
-                S.modal=null;S.actCells=[];render();
-              } else {
-                S.modal=null;S.actCells=[];render();
-              }
-            }
-          }});
-          btn.style.background=a.bg;btn.style.color=a.c;
-          const s=document.createElement("strong");s.textContent=code;
-          const l=document.createElement("span");l.className="lbl";l.textContent=a.l;
-          btn.appendChild(s);btn.appendChild(l);
-          grid.appendChild(btn);
-        });
-        body.push(grid);
-      });
-      // Commentaire
-      body.push(mk("div","frow",{style:{marginTop:"6px"}},[mk("label","lf",{},["Commentaire (optionnel)"])]));
+      const adm=isAdmin();
+      // Lieu d'une case : celui déjà indiqué dans la case (EQn/An/Gn), sinon l'équipe de la personne
+      const lieuIdx=k=>{
+        const act=S.planning[k]?.act||"";
+        const mm=/^(EQ|A|G)(\d+)$/.exec(act);
+        if(mm&&+mm[2]<=teamsL.length)return +mm[2];
+        const mem=S.members.find(x=>x.id===k.split("|")[0]);
+        const i=mem?teamsL.indexOf(mem.team):-1;
+        return i>=0?i+1:1;
+      };
+      const ownIdx=k=>{const mem=S.members.find(x=>x.id===k.split("|")[0]);const i=mem?teamsL.indexOf(mem.team):-1;return i>=0?i+1:0;};
+      const idxs=[...new Set(cells.map(lieuIdx))];
+      const sameLieu=idxs.length===1?idxs[0]:null;
+      const curActs=[...new Set(cells.map(k=>S.planning[k]?.act||"."))];
+      const curAct=curActs.length===1?curActs[0]:null;
+      // Applique un code (éventuellement différent) à chaque case
+      const applyMap=fn=>{
+        const comment=commentInp?commentInp.value.trim():"";
+        pushUndo(cells);
+        const saved={};
+        const cleared=[];
+        cells.forEach(k=>{const code=fn(k);
+          if(code==="."){delete S.planning[k];_deleteKey(k);cleared.push(k);return;}
+          S.planning[k]={act:code,comment};saved[k]={act:code,comment};});
+        if(Object.keys(saved).length)_persistPlanningEntries(saved);
+        persist();
+        if(adm){
+          const before=S.undoStack.length?S.undoStack[S.undoStack.length-1].before:{};
+          cells.forEach(k=>{
+            if(!saved[k])return;
+            const [mid,date,slot]=k.split("|");const code=saved[k].act;
+            const actBefore=before[k]?.act||null;
+            const idx=S.publishQueue.findIndex(e=>e.key===k);
+            if(idx>=0)S.publishQueue[idx]={key:k,mid,date,slot,actBefore:S.publishQueue[idx].actBefore,actAfter:code};
+            else S.publishQueue.push({key:k,mid,date,slot,actBefore,actAfter:code});
+          });
+          S.publishQueue=S.publishQueue.filter(e=>e.actBefore!==e.actAfter);
+        }
+        const codes=[...new Set(cells.map(k=>saved[k]?.act||"."))];
+        S._act2Pending=null;
+        if(codes.length===1&&codes[0]==="CRC"){S.actCells=[];S.modal="crcDashboard";render();return;}
+        if(!adm&&codes.length===1&&USER_ALLOWED.includes(codes[0]))S.pendingEntries.push({cells:[...cells],code:codes[0]});
+        S.modal=null;S.actCells=[];render();
+      };
+      // Choix d'un code unique (les lieux perso gardent le choix principal / secondaire)
+      const pick=code=>{
+        if(customCodes.includes(code)){
+          const allHaveAct=cells.every(k=>S.planning[k]?.act&&S.planning[k].act!==".");
+          if(allHaveAct&&ACT2_CODES.includes(code)&&S.planning[cells[0]]?.act!==code){S._act2Pending={code,cells:[...cells]};rebuildModal();}
+          else commit(code);
+          return;
+        }
+        applyMap(()=>code);
+      };
+      // En-tête : pour qui, quand, activité actuelle
+      {
+        const [mid0,ds0,sl0]=(cells[0]||"").split("|");
+        const mem0=S.members.find(x=>x.id===mid0);
+        const curLbl=curAct?(curAct==="."?"Présent":(ACTS[curAct]?.l||curAct)):"activités différentes";
+        let title,sub;
+        if(cells.length===1&&mem0){
+          const d0=new Date(ds0+"T12:00:00");
+          title=mem0.name;
+          sub=`${DAYS_FULL[d0.getDay()]} ${d0.getDate()} ${MONTHS_SHORT[d0.getMonth()]} · ${sl0==="AM"?"matin":"après-midi"} · actuellement : ${curLbl}`;
+        } else {title=`${cells.length} cases`;sub=`Actuellement : ${curLbl}`;}
+        hdr.querySelector("h3").textContent=title;
+        body.push(mk("p","am-sub",{},[sub]));
+      }
+      // Commentaire (replié par défaut)
       commentInp=mk("input","",{type:"text",placeholder:"Ex : formation, accompagnement…"});
-      commentInp.value=S.actInitComment||"";body[body.length-1].appendChild(commentInp);
-      body.push(mk("div","mfooter",{},[
-        mk("button","btn",{style:{background:"#dcfce7",color:"#166534",borderColor:"#bbf7d0"},onClick:resetDefault},["↺ Présent (défaut)"]),
-        mk("button","btn",{onClick:close},["Fermer"]),
+      commentInp.value=uiCommentVal??(S.actInitComment||"");
+      commentInp.addEventListener("input",()=>{uiCommentVal=commentInp.value;});
+      const commentRow=()=>(uiShowComment||commentInp.value)
+        ?mk("div","frow",{style:{marginTop:"10px"}},[mk("label","lf",{},["Commentaire (optionnel)"]),commentInp])
+        :mk("button","am-link",{onClick:()=>{uiShowComment=true;rebuildModal();}},["+ Ajouter un commentaire"]);
+      const colorize=(b,code)=>{const a=code==="."?{c:"#166534",bg:"#dcfce7"}:(ACTS[code]||{c:"#374151",bg:"#f1f5f9"});b.style.background=a.bg;b.style.color=a.c;return b;};
+      // ── Option B : onglets par thème
+      const big=(code,label,onClick,isCur)=>colorize(mk("button","am-big"+(isCur?" am-cur":""),{onClick},[mk("span","",{},[label]),mk("small","",{},[code==="."?"":code])]),code);
+      const ACT_TAB=["C","R","CRC","F",...customCodes];
+      const ABS_TAB=["TP","TT","CP","CV","DP","DV","O","/"];
+      if(!adm){
+        body.push(mk("div","am-bigs",{},USER_ALLOWED.map(c=>big(c,ACTS[c]?.l||c,()=>pick(c),curAct===c))));
+      } else {
+        if(!uiTab)uiTab=curAct&&ABS_TAB.includes(curAct)?"abs":(curAct&&ACT_TAB.includes(curAct)?"act":"site");
+        body.push(mk("div","am-tabs",{role:"tablist"},[["site","Sur site"],["act","Activités"],["abs","Absences"]].map(([id,l])=>
+          mk("button","am-tab"+(uiTab===id?" on":""),{role:"tab","aria-selected":String(uiTab===id),onClick:()=>{uiTab=id;rebuildModal();}},[l]))));
+        if(uiTab==="site"){
+          if(uiLieu===null)uiLieu=sameLieu||0; // 0 = chacun son lieu
+          const chips=[];
+          if(idxs.length>1)chips.push([0,"Chacun son lieu"]);
+          teamsL.forEach((t,i)=>chips.push([i+1,t]));
+          body.push(mk("div","am-chips",{},[mk("span","am-chl",{},["Lieu"]),...chips.map(([v,l])=>mk("button","am-chip"+(uiLieu===v?" on":""),{onClick:()=>{uiLieu=v;rebuildModal();}},[l]))]));
+          const L=uiLieu;
+          const nm=L?teamsL[L-1]:"lieu de chacun";
+          const per=pre=>L?(()=>pre+L):(k=>pre+lieuIdx(k));
+          const cur=pre=>!!curAct&&(L?curAct===pre+L:new RegExp("^"+pre+"\\d+$").test(curAct));
+          const LL=L||lieuIdx(cells[0]);
+          body.push(mk("div","am-bigs",{},[
+            big("EQ"+LL,`Présent · ${nm}`,()=>applyMap(k=>{const n=L||ownIdx(k);return n===ownIdx(k)?".":"EQ"+n;}),L?(L===ownIdx(cells[0])?curAct===".":curAct==="EQ"+L):curAct==="."),
+            big("A"+LL,`Accueil · ${nm}`,()=>applyMap(per("A")),cur("A")),
+            big("G"+LL,`GDV · ${nm}`,()=>applyMap(per("G")),cur("G")),
+            big("S","Soutien accueil",()=>pick("S"),curAct==="S"),
+          ]));
+        } else {
+          const list=(uiTab==="act"?ACT_TAB:ABS_TAB).filter(c=>ACTS[c]);
+          body.push(mk("div","am-bigs",{},list.map(c=>big(c,ACTS[c].l,()=>pick(c),curAct===c))));
+        }
+      }
+      body.push(mk("div","am-foot",{},[
+        commentRow(),
+        mk("button","btn",{style:{marginLeft:"auto",background:"#dcfce7",color:"#166534",borderColor:"#bbf7d0"},onClick:resetDefault},["↺ Présent (défaut)"]),
+        mk("button","btn",{onClick:close},["Annuler"]),
       ]));
 
     modalEl=mk("div","modal",{},[...body]);
-    const ov=mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[modalEl]);
-    document.getElementById("app").appendChild(ov);
+    ovEl=mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[modalEl]);
+    document.getElementById("app").appendChild(ovEl);
   }
   function buildModalEl(body){
     modalEl=mk("div","modal",{},[...body]);
-    const ov=mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[modalEl]);
-    document.getElementById("app").appendChild(ov);
+    ovEl=mk("div","overlay",{onClick:e=>{if(e.target===e.currentTarget)close();}},[modalEl]);
+    document.getElementById("app").appendChild(ovEl);
   }
 
   rebuildModal();
@@ -4762,7 +4850,7 @@ function buildImportMworkModal(){
   const setStep=(n)=>{S._mwState.step=n;render();};
   const box=mk("div","modal",{style:{maxWidth:"460px",width:"95%",maxHeight:"90vh",overflowY:"auto"}});
   const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
-    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-1024j"])]),
+    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-1026a"])]),
     mk("button","mclose",{onClick:()=>{S._mwState=null;close();}},"×"),
   ]);
   box.appendChild(hdr);
