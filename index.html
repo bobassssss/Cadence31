@@ -4409,34 +4409,32 @@ const MW_TRIGGER_URL="https://cadence31.vercel.app/api/mwork-trigger";
 function _normName(s){return(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();}
 // Suggère le membre de notre app le plus proche du nom m-work
 function _suggestMember(mwFirst,mwLast){
-  const nFirst=_normName(mwFirst);
-  const nLast=_normName(mwLast);
-  const full1=nFirst+" "+nLast; // prénom nom
-  const full2=nLast+" "+nFirst; // nom prénom (m-work parfois inversé)
-  let best=null,bestScore=0;
+  const words=x=>_normName(x).replace(/[.]/g,"").split(/[\s-]+/).filter(Boolean);
+  const fW=words(mwFirst),lW=words(mwLast);
+  const nFirst=fW.join(" "),nLast=lW.join(" ");
+  let best=null,bestScore=0,tie=false;
   S.members.forEach(m=>{
-    const mn=_normName(m.name);
-    const parts=mn.split(" ");
+    const mW=words(m.name);const mn=mW.join(" ");
+    const has=w=>mW.includes(w);
+    const firstOk=fW.length>0&&fW.every(has);
+    const lastAll=lW.length>0&&lW.every(has);
+    const lastSome=lW.some(w=>w.length>2&&(has(w)||mn.includes(w)));       // nom composé, nom partiel
+    const rest=mW.filter(w=>!fW.includes(w));                              // notre nom sans le prénom
     let score=0;
-    // Correspondance exacte dans les deux sens
-    if(mn===full1||mn===full2)score=10;
-    // Prénom ET nom présents dans notre nom (ordre quelconque)
-    else if(nFirst.length>1&&nLast.length>1&&mn.includes(nFirst)&&mn.includes(nLast))score=8;
-    // Nom de famille seul (souvent suffisant et unique)
-    else if(nLast.length>2&&mn.includes(nLast))score=5;
-    // Prénom seul
-    else if(nFirst.length>2&&mn.includes(nFirst))score=3;
-    // Mots en commun (pour noms composés)
-    else{
-      const mwParts=[nFirst,...nLast.split("-"),...nFirst.split("-")];
-      const common=mwParts.filter(w=>w.length>2&&parts.some(p=>p===w||p.startsWith(w)||w.startsWith(p))).length;
-      if(common>0)score=common;
-    }
-    if(score>bestScore){bestScore=score;best=m;}
+    if(fW.length&&(mn===nFirst+" "+nLast||mn===nLast+" "+nFirst))score=10; // identique
+    else if(firstOk&&lastAll)score=9;                                       // prénom + nom
+    else if(firstOk&&rest.length===1&&rest[0].length<=2&&lW.length&&lW[0].startsWith(rest[0]))score=8; // « Manon B. »
+    else if(firstOk&&rest.length===0)score=7;                               // planning au prénom seul
+    else if(firstOk&&lastSome)score=6;                                      // prénom + une partie du nom
+    else if(lastAll&&lW.join("").length>2)score=5;                          // nom de famille seul
+    else if(lastSome)score=4;                                               // une partie du nom seulement
+    else if(firstOk)score=3;                                                // même prénom seulement
+    if(score>bestScore){bestScore=score;best=m;tie=false;}
+    else if(score>0&&score===bestScore)tie=true;
   });
-  // Prénom seul ou mot commun = trop faible : ce n'est probablement pas la même personne
+  // Deux collaborateurs aussi plausibles : on laisse choisir
   _suggestMember.lastScore=bestScore;
-  return bestScore>=5?best:null;
+  return bestScore>=3&&!tie?best:null;
 }
 
 // Détermine le créneau (AM/PM) depuis startDate UTC
@@ -4833,9 +4831,11 @@ function _mwIngestMonths(dataList,label){
     return{mwId:u.id,mwName:`${fn} ${ln}`.trim()||u.displayName||u.name||"?",mwUser:u,ourMember:sug,_score:sug?_suggestMember.lastScore:0,include:true};
   });
   // Un même collaborateur ne peut correspondre qu'à une seule personne m-work : on garde la meilleure
-  const bestFor={};
-  mw.mapping.forEach(m=>{if(!m.ourMember)return;const k=m.ourMember.id;if(!bestFor[k]||m._score>bestFor[k]._score)bestFor[k]=m;});
-  mw.mapping.forEach(m=>{if(m.ourMember&&bestFor[m.ourMember.id]!==m){m.ourMember=null;m._score=0;}});
+  const bestFor={},tieFor={};
+  mw.mapping.forEach(m=>{if(!m.ourMember)return;const k=m.ourMember.id;
+    if(!bestFor[k]||m._score>bestFor[k]._score){bestFor[k]=m;tieFor[k]=false;}
+    else if(m._score===bestFor[k]._score)tieFor[k]=true;});
+  mw.mapping.forEach(m=>{if(m.ourMember&&(bestFor[m.ourMember.id]!==m||tieFor[m.ourMember.id])){m.ourMember=null;m._score=0;}});
   // Personnes sans correspondance en premier, puis ordre alphabétique
   mw.mapping.sort((a,b)=>(a.ourMember?1:0)-(b.ourMember?1:0)||a.mwName.localeCompare(b.mwName,"fr"));
   mw.step=2;render();
@@ -4850,7 +4850,7 @@ function buildImportMworkModal(){
   const setStep=(n)=>{S._mwState.step=n;render();};
   const box=mk("div","modal",{style:{maxWidth:"460px",width:"95%",maxHeight:"90vh",overflowY:"auto"}});
   const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
-    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-1026a"])]),
+    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-1026b"])]),
     mk("button","mclose",{onClick:()=>{S._mwState=null;close();}},"×"),
   ]);
   box.appendChild(hdr);
@@ -4974,7 +4974,7 @@ function buildImportMworkModal(){
   // ── ÉTAPE 2 : Mapping membres ─────────────────────────────────────────────
   else if(mw.step===2){
     box.appendChild(mk("p","",{style:{fontSize:"12px",color:"#6b7280",margin:"0 0 10px"}},
-      [(()=>{const nf=mw.mapping.filter(m=>!m.ourMember).length;return `${mw.mapping.length} personnes trouvées dans m-work : ${mw.mapping.length-nf} reconnues, ${nf} sans correspondance dans le planning (en haut de la liste, bouton « + Créer »).`;})()]));
+      [(()=>{const nf=mw.mapping.filter(m=>!m.ourMember).length;const nv=mw.mapping.filter(m=>m.ourMember&&m._score<5).length;return `${mw.mapping.length} personnes trouvées dans m-work : ${mw.mapping.length-nf} reconnues${nv?` (dont ${nv} à vérifier)`:""}, ${nf} sans correspondance dans le planning (en haut de la liste, bouton « + Créer »).`;})()]));
 
     const rows=mw.mapping.map((m,i)=>{
       const chk=mk("input","",{type:"checkbox"});
@@ -5003,7 +5003,8 @@ function buildImportMworkModal(){
 
       return mk("div","",{style:{display:"flex",alignItems:"center",gap:"8px",padding:"5px 0",borderBottom:"1px solid #f3f4f6"}},[
         chk,
-        mk("span","",{style:{fontSize:"12px",minWidth:"130px",color:m.ourMember?"#374151":"#1d4ed8",fontWeight:m.ourMember?"400":"600"}},[m.mwName]),
+        mk("span","",{style:{fontSize:"12px",minWidth:"130px",color:m.ourMember?"#374151":"#1d4ed8",fontWeight:m.ourMember?"400":"600"}},[m.mwName,
+          ...(m.ourMember&&m._score<5?[mk("span","",{style:{display:"block",fontSize:"10.5px",fontWeight:"700",color:"#b45309"}},["à vérifier"])]:[])]),
         mk("span","",{style:{fontSize:"11px",color:"#9ca3af"}},"→"),
         sel,
         addBtn,
