@@ -4603,19 +4603,34 @@ function _mwUserToEntries(mwUser,ourMemberId){
   // Traiter d'abord les activités publiées (prioritaires, sans flag draft)
   // puis les draftActivities seulement pour les créneaux non couverts (avec flag draft)
   const hourUTC=(d)=>d?parseInt(d.slice(11,13)):0;
+  // Demi-journées couvertes par une activité : chacune où elle dure au moins 1 h.
+  // Matin = avant 11 h UTC (12 h / 13 h à Paris), après-midi = ensuite. Une plage 9 h-18 h couvre donc la journée.
+  const spanOf=a=>{
+    const st=new Date(a.startDate).getTime();
+    let en=a.endDate?new Date(a.endDate).getTime():(a.durationMs?st+a.durationMs:NaN);
+    const first={date:a.startDate.slice(0,10),slot:hourUTC(a.startDate)<11?"AM":"PM",ms:a.durationMs||0};
+    if(isNaN(st)||isNaN(en)||en<=st)return[first];
+    const out=[];
+    for(let d=new Date(a.startDate.slice(0,10)+"T00:00:00Z").getTime();d<en;d+=86400000){
+      const ds=new Date(d).toISOString().slice(0,10);
+      [["AM",d,d+11*3600000],["PM",d+11*3600000,d+24*3600000]].forEach(([slot,a0,a1])=>{
+        const ov=Math.min(en,a1)-Math.max(st,a0);
+        if(ov>=3600000)out.push({date:ds,slot,ms:ov});
+      });
+    }
+    return out.length?out:[first];
+  };
   const processActivities=(list,isDraft)=>{
     // Total des réunions par demi-journée (plusieurs blocs courts peuvent faire ≥ 3h)
     const kindOf=a=>MW_ACT_MAP[a.activityId]||(_normName((mwCatalog[a.activityId]||{}).name||"").includes("reunion")?"REUNION":undefined);
     const reuMs={};
     list.forEach(a=>{
       if(kindOf(a)!=="REUNION"||!a.startDate)return;
-      const k=a.startDate.slice(0,10)+"|"+(hourUTC(a.startDate)<11?"AM":"PM");
-      reuMs[k]=(reuMs[k]||0)+(a.durationMs||0);
+      spanOf(a).forEach(x=>{const k=x.date+"|"+x.slot;reuMs[k]=(reuMs[k]||0)+x.ms;});
     });
     list.forEach(a=>{
       const date=a.startDate?.slice(0,10);
       if(!date||!a.activityId)return;
-      const slot=hourUTC(a.startDate)<11?"AM":"PM";
       const type=kindOf(a);
       let act=null;
       if(type==="IGNORE")return; // ignoré
@@ -4623,7 +4638,7 @@ function _mwUserToEntries(mwUser,ourMemberId){
         if(type==="ACCUEIL")act=ACCUEIL_CODE;
         else if(type==="GDV")act=GDV_CODE;
         else if(type==="REUNION"){
-          if((reuMs[a.startDate.slice(0,10)+"|"+slot]||0)>=10800000)act="R";
+          act="R"; // retenue seulement sur les demi-journées avec ≥ 3 h de réunion (ci-dessous)
         }
         else if(type==="FORMATION")act="F";
         else if(type==="CUSTOM"){
@@ -4663,7 +4678,8 @@ function _mwUserToEntries(mwUser,ourMemberId){
           });
         }
       }
-      if(act){
+      if(act)spanOf(a).forEach(({date,slot})=>{
+        if(type==="REUNION"&&(reuMs[date+"|"+slot]||0)<10800000)return;
         const key=`${ourMemberId}|${date}|${slot}`;
         if(!entries[key]){
           entries[key]={act,comment:"",draft:isDraft};
@@ -4684,7 +4700,7 @@ function _mwUserToEntries(mwUser,ourMemberId){
             entries[key]={act,comment:"",draft:true};
           }
         }
-      }
+      });
     });
   };
 
@@ -4850,7 +4866,7 @@ function buildImportMworkModal(){
   const setStep=(n)=>{S._mwState.step=n;render();};
   const box=mk("div","modal",{style:{maxWidth:"460px",width:"95%",maxHeight:"90vh",overflowY:"auto"}});
   const hdr=mk("div","",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
-    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-1026b"])]),
+    mk("h3","",{style:{margin:0}},["↓ Import m-work ",mk("span","",{style:{fontSize:"10px",color:"#9ca3af",fontWeight:"400"}},["v-1026c"])]),
     mk("button","mclose",{onClick:()=>{S._mwState=null;close();}},"×"),
   ]);
   box.appendChild(hdr);
